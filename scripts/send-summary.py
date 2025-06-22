@@ -5,6 +5,7 @@ import yfinance as yf
 import requests
 import os
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 
@@ -30,19 +31,6 @@ def get_gspread_client():
 def get_open_positions_from_gsheet(sheet_name='myportfolio', worksheet_name='portfolio'):
     gc = get_gspread_client()
     #gc = gspread.service_account(filename='gdrive-creds.json')
-    sh = gc.open(sheet_name)
-    ws = sh.worksheet(worksheet_name)
-    df = get_as_dataframe(ws)
-    df = df.dropna(subset=['Symbol'])
-    if 'Unnamed: 0' in df.columns:
-        df = df.drop(columns=['Unnamed: 0'])
-    df['DateTime'] = pd.to_datetime(df['DateTime'])
-    df = df.sort_values(['Symbol', 'DateTime'])
-    latest_df = df.groupby('Symbol').tail(1).reset_index(drop=True)
-    return latest_df
-
-def get_open_positions_from_gsheet(sheet_name='myportfolio', worksheet_name='portfolio'):
-    gc = gspread.service_account(filename='gdrive-creds.json')
     sh = gc.open(sheet_name)
     ws = sh.worksheet(worksheet_name)
     df = get_as_dataframe(ws)
@@ -124,23 +112,11 @@ def summarize_yfinance_portfolio(pnl_df,price_date):
     return "\n".join(summary_lines)
 
 
+
+
 def get_account_summary_from_gsheet(sheet_name='myportfolio', worksheet_name='accountsummary'):
     gc = get_gspread_client()
     #gc = gspread.service_account(filename='gdrive-creds.json')
-    sh = gc.open(sheet_name)
-    ws = sh.worksheet(worksheet_name)
-    df = get_as_dataframe(ws)
-    df = df.dropna(subset=['Tag'])
-    if 'Unnamed: 0' in df.columns:
-        df = df.drop(columns=['Unnamed: 0'])
-    df['DateTime'] = pd.to_datetime(df['DateTime'])
-    df = df.sort_values(['Tag', 'DateTime'])
-    latest_df = df.groupby('Tag').tail(1).reset_index(drop=True)
-    return latest_df
-
-
-def get_account_summary_from_gsheet(sheet_name='myportfolio', worksheet_name='accountsummary'):
-    gc = gspread.service_account(filename='gdrive-creds.json')
     sh = gc.open(sheet_name)
     ws = sh.worksheet(worksheet_name)
     df = get_as_dataframe(ws)
