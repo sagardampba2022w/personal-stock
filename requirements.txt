@@ -285,7 +285,9 @@ pytz==2025.1
     # via
     #   pandas
     #   yfinance
-pywin32==310
+#pywin32==310
+pywin32==310; platform_system == "Windows"
+
     # via jupyter-core
 pywinpty==2.0.15
     # via
