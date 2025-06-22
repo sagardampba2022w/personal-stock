@@ -199,31 +199,3 @@ if __name__ == "__main__":
         print("Telegram bot token or chat ID missing, not sending message.")
 
 
-# if __name__ == "__main__":
-#     df = get_open_positions_from_gsheet()
-#     #price_dict = get_latest_prices(df['Symbol'])
-#     price_dict, price_date_dict = get_latest_prices(df['Symbol'])
-#     price_dates = list(price_date_dict.values())
-#     unique_dates = set([d for d in price_dates if d is not None])
-#     if len(unique_dates) == 1:
-#         price_date = unique_dates.pop()
-#     else:
-#         price_date = "Mixed"
-
-
-#     pnl_df = calculate_yfinance_pnl(df, price_dict)
-#     account_df = get_account_summary_from_gsheet()
-   
-#     pnl_sumamry_msg = summarize_yfinance_portfolio(pnl_df,price_date)
-#     account_summary_msg= summarize_account_summary(account_df)
-
-
-#     print(pnl_sumamry_msg)  # Optional: print to console
-#     print(account_summary_msg)
-
-#     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-#         send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, pnl_sumamry_msg)
-#         send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, account_summary_msg)
-
-#     else:
-#         print("Telegram bot token or chat ID missing, not sending message.")
