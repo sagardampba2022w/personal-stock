@@ -94,28 +94,49 @@ def calculate_yfinance_pnl(df, price_dict):
     return pd.DataFrame(results)
 
 
+# def summarize_yfinance_portfolio(pnl_df,price_date):
+#     summary_lines = []
+#     summary_lines.append("Portfolio (latest market prices)\n")
+#     summary_lines.append(f"Prices as of: {price_date}\n")
+#     summary_lines.append("Symbol  | Qty    | Avg Cost | Price   | Unrlz PnL | PnL %  ")
+#     summary_lines.append("-" * 60)
+#     for _, row in pnl_df.iterrows():
+#         summary_lines.append(
+#             f"{row['Symbol']:<7} | {row['Qty']:>7.4f} | "
+#             f"{row['Avg Cost']:>8.2f} | {row['Last Price']:>7.2f} | "
+#             f"{row['Unrealized PnL']:>9.2f} | {row['PnL %']:>6.2f}%"
+#         )
+#     summary_lines.append("-" * 60)
+#     total_unrlz_pnl = pnl_df['Unrealized PnL'].sum()
+#     total_invested = (pnl_df['Avg Cost'] * pnl_df['Qty']).sum()
+#     total_pnl_pct = 100 * total_unrlz_pnl / total_invested if total_invested != 0 else 0
+#     summary_lines.append(f"TOTAL Portfolio Unrealized P&L: ${total_unrlz_pnl:.2f}")
+#     summary_lines.append(f"TOTAL Portfolio Unrealized P&L %: {total_pnl_pct:.2f}%")
+#     return "\n".join(summary_lines)
+
+
+
 def summarize_yfinance_portfolio(pnl_df,price_date):
     summary_lines = []
-    summary_lines.append("Portfolio (latest market prices)\n")
-    summary_lines.append(f"Prices as of: {price_date}\n")
-    summary_lines.append("Symbol  | Qty    | Avg Cost | Price   | Unrlz PnL | PnL %  ")
-    summary_lines.append("-" * 60)
+    summary_lines.append("📊 *PORTFOLIO SUMMARY*")
+    summary_lines.append(f"📅 _Prices as of: {price_date}_\n")
+    summary_lines.append("`Symbol  | Qty    | Cost   | Price  | P&L    | %`")
+    summary_lines.append("`" + "-" * 37 + "`")
     for _, row in pnl_df.iterrows():
+        pnl_emoji = "🟢" if row['Unrealized PnL'] > 0 else "🔴" if row['Unrealized PnL'] < 0 else "⚪"
         summary_lines.append(
-            f"{row['Symbol']:<7} | {row['Qty']:>7.4f} | "
-            f"{row['Avg Cost']:>8.2f} | {row['Last Price']:>7.2f} | "
-            f"{row['Unrealized PnL']:>9.2f} | {row['PnL %']:>6.2f}%"
+            f"`{row['Symbol']:<6} | {row['Qty']:>5.1f} | "
+            f"{row['Avg Cost']:>6.0f} | {row['Last Price']:>6.0f} | "
+            f"{row['Unrealized PnL']:>6.0f} | {row['PnL %']:>4.1f}%` {pnl_emoji}"
         )
-    summary_lines.append("-" * 60)
+    summary_lines.append("`" + "-" * 37 + "`")
     total_unrlz_pnl = pnl_df['Unrealized PnL'].sum()
     total_invested = (pnl_df['Avg Cost'] * pnl_df['Qty']).sum()
     total_pnl_pct = 100 * total_unrlz_pnl / total_invested if total_invested != 0 else 0
-    summary_lines.append(f"TOTAL Portfolio Unrealized P&L: ${total_unrlz_pnl:.2f}")
-    summary_lines.append(f"TOTAL Portfolio Unrealized P&L %: {total_pnl_pct:.2f}%")
+    total_emoji = "🚀" if total_unrlz_pnl > 0 else "📉" if total_unrlz_pnl < 0 else "➖"
+    summary_lines.append(f"\n💰 *TOTAL P&L:* `${total_unrlz_pnl:.2f}` {total_emoji}")
+    summary_lines.append(f"📈 *TOTAL %:* `{total_pnl_pct:.2f}%`")
     return "\n".join(summary_lines)
-
-
-
 
 def get_account_summary_from_gsheet(sheet_name='myportfolio', worksheet_name='accountsummary'):
     gc = get_gspread_client()
@@ -135,17 +156,41 @@ def get_account_summary_from_gsheet(sheet_name='myportfolio', worksheet_name='ac
     return latest_df
 
 
+# def summarize_account_summary(df):
+#     lines = []
+#     latest_datetime = df['DateTime'].max()
+#     lines.append(f"Account Summary as of: {latest_datetime}\n")
+#     lines.append("Tag                   | Value        | Currency")
+#     lines.append("-" * 45)
+#     for _, row in df.iterrows():
+#         lines.append(
+#             f"{row['Tag']:<22} | {row['Value']:>12} | {row['Currency']}"
+#         )
+#     lines.append("-" * 45)
+#     return "\n".join(lines)
+
+
+
 def summarize_account_summary(df):
     lines = []
     latest_datetime = df['DateTime'].max()
-    lines.append(f"Account Summary as of: {latest_datetime}\n")
-    lines.append("Tag                   | Value        | Currency")
-    lines.append("-" * 45)
+    lines.append("🏦 *ACCOUNT SUMMARY*")
+    lines.append(f"📅 _As of: {latest_datetime}_\n")
+    lines.append("`Tag                  | Value      | Curr`")
+    lines.append("`" + "-" * 37 + "`")
     for _, row in df.iterrows():
+        if 'Cash' in row['Tag']:
+            emoji = "💵"
+        elif 'PnL' in row['Tag']:
+            emoji = "📊"
+        elif 'Buying' in row['Tag']:
+            emoji = "💳"
+        else:
+            emoji = "📋"
         lines.append(
-            f"{row['Tag']:<22} | {row['Value']:>12} | {row['Currency']}"
+            f"`{row['Tag']:<20} | {row['Value']:>10} | {row['Currency']:<4}` {emoji}"
         )
-    lines.append("-" * 45)
+    lines.append("`" + "-" * 37 + "`")
     return "\n".join(lines)
 
 
