@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Write gdrive-creds.json from secret
+        run: echo "${{ secrets.GDRIVE_CREDS_JSON }}" > gdrive-creds.json
+
       - name: Run portfolio summary script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

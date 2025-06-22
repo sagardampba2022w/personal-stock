@@ -10,26 +10,9 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-def get_gspread_client():
-    """Get gspread client using either file or environment variable"""
-    gdrive_creds_json = os.getenv("GDRIVE_CREDS_JSON")
-    
-    if gdrive_creds_json:
-        # Use environment variable (for GitHub Actions)
-        try:
-            creds_dict = json.loads(gdrive_creds_json)
-            return gspread.service_account_from_dict(creds_dict)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing GDRIVE_CREDS_JSON: {e}")
-            raise
-    else:
-        # Use file (for local development)
-        return gspread.service_account(filename='gdrive-creds.json')
-
 
 def get_open_positions_from_gsheet(sheet_name='myportfolio', worksheet_name='portfolio'):
-    gc = get_gspread_client()
-    #gc = gspread.service_account(filename='gdrive-creds.json')
+    gc = gspread.service_account(filename='gdrive-creds.json')
     sh = gc.open(sheet_name)
     ws = sh.worksheet(worksheet_name)
     df = get_as_dataframe(ws)
@@ -125,8 +108,7 @@ def summarize_yfinance_portfolio(pnl_df,price_date):
 
 
 def get_account_summary_from_gsheet(sheet_name='myportfolio', worksheet_name='accountsummary'):
-    gc = get_gspread_client()
-    #gc = gspread.service_account(filename='gdrive-creds.json')
+    gc = gspread.service_account(filename='gdrive-creds.json')
     sh = gc.open(sheet_name)
     ws = sh.worksheet(worksheet_name)
     df = get_as_dataframe(ws)
