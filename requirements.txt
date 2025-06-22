@@ -289,7 +289,9 @@ pytz==2025.1
 pywin32==310; platform_system == "Windows"
 
     # via jupyter-core
-pywinpty==2.0.15
+pywinpty==2.0.15; platform_system == "Windows"
+
+#pywinpty==2.0.15
     # via
     #   jupyter-server
     #   jupyter-server-terminals
