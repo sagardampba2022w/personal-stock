@@ -11,12 +11,14 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 def get_gspread_client():
     """Get gspread client using either file or environment variable"""
     gdrive_creds_json = os.getenv("GDRIVE_CREDS_JSON")
     
     if gdrive_creds_json:
         # Use environment variable (for GitHub Actions)
+        print("Using environment variable for credentials")
         try:
             creds_dict = json.loads(gdrive_creds_json)
             return gspread.service_account_from_dict(creds_dict)
@@ -25,6 +27,7 @@ def get_gspread_client():
             raise
     else:
         # Use file (for local development)
+        print("Using file for credentials")
         return gspread.service_account(filename='gdrive-creds.json')
 
 
