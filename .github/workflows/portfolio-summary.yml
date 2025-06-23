@@ -2,7 +2,7 @@ name: Portfolio Summary
 
 on:
   schedule:
-    - cron: '0 15 * * *'  # # 15:00 UTC = 7:00 PM Dubai time
+    - cron: '0 7 * * *'  # # 15:00 UTC = 7:00 PM Dubai time
   workflow_dispatch:        # Allow manual runs
 
 jobs:
