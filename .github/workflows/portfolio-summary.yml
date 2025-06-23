@@ -2,7 +2,7 @@ name: Portfolio Summary
 
 on:
   schedule:
-    - cron: '15 6 * * 1,3,5'    # Mon, Wed, Fri at 10:15 am Dubai time
+    - cron: '*/5 * * * *'  # every 5 minutes
   workflow_dispatch:        # Allow manual runs
 
 jobs:
