@@ -73,25 +73,25 @@ def get_latest_prices(symbols):
     return price_dict, price_date_dict
 
 
-def calculate_yfinance_pnl(df, price_dict):
-    results = []
-    for _, row in df.iterrows():
-        symbol = row['Symbol']
-        qty = float(row['Position'])
-        avg_cost = float(row['Average Cost'])
-        last_price = price_dict.get(symbol)
-        if last_price is not None:
-            unrealized = (last_price - avg_cost) * qty
-            pct = 100 * (last_price - avg_cost) / avg_cost if avg_cost != 0 else 0
-            results.append({
-                'Symbol': symbol,
-                'Qty': qty,
-                'Avg Cost': avg_cost,
-                'Last Price': last_price,
-                'Unrealized PnL': unrealized,
-                'PnL %': pct
-            })
-    return pd.DataFrame(results)
+# def calculate_yfinance_pnl(df, price_dict):
+#     results = []
+#     for _, row in df.iterrows():
+#         symbol = row['Symbol']
+#         qty = float(row['Position'])
+#         avg_cost = float(row['Average Cost'])
+#         last_price = price_dict.get(symbol)
+#         if last_price is not None:
+#             unrealized = (last_price - avg_cost) * qty
+#             pct = 100 * (last_price - avg_cost) / avg_cost if avg_cost != 0 else 0
+#             results.append({
+#                 'Symbol': symbol,
+#                 'Qty': qty,
+#                 'Avg Cost': avg_cost,
+#                 'Last Price': last_price,
+#                 'Unrealized PnL': unrealized,
+#                 'PnL %': pct
+#             })
+#     return pd.DataFrame(results)
 
 
 def calculate_yfinance_pnl(df, price_dict):
