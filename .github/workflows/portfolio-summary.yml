@@ -2,8 +2,8 @@ name: Portfolio Summary
 
 on:
   schedule:
-    - cron: '0 7 * * *'  # # 15:00 UTC = 7:00 PM Dubai time
-  workflow_dispatch:        # Allow manual runs
+    - cron: '0 7 * * *'     # 11:00 UTC = 15:00 Dubai time  
+  workflow_dispatch:
 
 jobs:
   run-summary:
@@ -21,9 +21,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run portfolio summary script
+      - name: Run all portfolio scripts
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GDRIVE_CREDS_JSON: ${{ secrets.GDRIVE_CREDS_JSON }}
-        run: python scripts/send-summary.py
+          TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          GDRIVE_CREDS_JSON:  ${{ secrets.GDRIVE_CREDS_JSON }}
+        run: |
+          python scripts/portfolio-positions-manage.py
+          python scripts/send-summary.py
+          python scripts/portfolio-alerts.py
