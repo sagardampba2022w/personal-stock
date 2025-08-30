@@ -201,3 +201,6 @@ gdrive-creds.json
 *.parquet
 *.parquet.brotli
 *.csv
+
+/data-prep/artifacts/
+/archive-app

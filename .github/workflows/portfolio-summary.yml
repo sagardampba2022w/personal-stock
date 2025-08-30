@@ -27,6 +27,6 @@ jobs:
           TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
           GDRIVE_CREDS_JSON:  ${{ secrets.GDRIVE_CREDS_JSON }}
         run: |
-          python scripts/portfolio-positions-manage.py
-          python scripts/send-summary.py
-          python scripts/portfolio-alerts.py
+          python portfolio-manage/portfolio-positions-manage.py
+          python portfolio-manage/send-summary.py
+          python portfolio-manage/portfolio-alerts.py

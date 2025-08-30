@@ -1,0 +1,35 @@
+from stock_pipeline import StockDataPipeline
+from train import StockTrainingPipeline
+from tickerfetch import get_combined_universe
+
+# Get tickers
+universe_df = get_combined_universe(include_sp500=True, include_nasdaq100=True)
+tickers = universe_df['Ticker'].tolist()[:10]  # Use first 50 for testing
+
+# Configuration
+LOOKBACKS = [1, 3, 7, 30, 90, 252, 365]
+HORIZONS = [30]
+BINARY_THRESHOLDS = {30: 1.05}
+
+# Run data pipeline
+pipeline = StockDataPipeline(
+    tickers=tickers,
+    lookbacks=LOOKBACKS,
+    horizons=HORIZONS,
+    binarize_thresholds=BINARY_THRESHOLDS
+)
+
+# Generate data
+print("Generating data...")
+final_data = pipeline.run_complete_pipeline()
+# ADD THESE DEBUG LINES HERE:
+print("Available columns:", final_data.columns.tolist()[:10])  # Show first 10 columns
+print("Looking for date column in:", [col for col in final_data.columns if 'date' in col.lower()])
+
+final_data.rename(columns={'Date': 'date', 'Ticker': 'ticker'}, inplace=True)
+
+
+# Train models
+print("Training models...")
+trainer = StockTrainingPipeline(final_data)
+best_model = trainer.run_complete_training()

@@ -1,0 +1,669 @@
+"""
+Complete Training Pipeline for Stock Market Prediction
+=====================================================
+
+This pipeline integrates with your stock data pipeline output to train
+machine learning models for stock price prediction.
+
+Usage:
+    python training_pipeline.py
+"""
+
+import pandas as pd
+import numpy as np
+import os
+import joblib
+from datetime import datetime
+from typing import List, Dict, Optional, Tuple
+import warnings
+warnings.filterwarnings('ignore')
+
+# ML imports
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import cross_val_score, GridSearchCV
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score, 
+    roc_auc_score, classification_report, confusion_matrix
+)
+from sklearn.preprocessing import StandardScaler
+
+# Gradient boosting models
+try:
+    import lightgbm as lgb
+    LIGHTGBM_AVAILABLE = True
+except ImportError:
+    LIGHTGBM_AVAILABLE = False
+    print("LightGBM not available. Install with: pip install lightgbm")
+
+try:
+    import xgboost as xgb
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+    print("XGBoost not available. Install with: pip install xgboost")
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+class StockTrainingPipeline:
+    """Complete training pipeline for stock market prediction"""
+    
+    def __init__(self, pipeline_data: pd.DataFrame, target_horizon: int = 30):
+        """
+        Initialize training pipeline with data from stock pipeline
+        
+        Parameters:
+        -----------
+        pipeline_data : pd.DataFrame
+            Output from your stock_pipeline.py
+        target_horizon : int
+            Prediction horizon in days (default: 30)
+        """
+        self.raw_data = pipeline_data.copy()
+        self.target_horizon = target_horizon
+        self.target_col = None
+        
+        # Initialize pipeline components
+        self.processed_data = None
+        self.feature_sets = {}
+        self.train_data = {}
+        self.val_data = {}
+        self.test_data = {}
+        self.models = {}
+        self.results = {}
+        
+        # Ensure data directory exists
+        os.makedirs('../models', exist_ok=True)
+        os.makedirs('../results', exist_ok=True)
+        
+        print(f"Training pipeline initialized")
+        print(f"Input data: {self.raw_data.shape[0]:,} rows × {self.raw_data.shape[1]:,} columns")
+        print(f"Date range: {self.raw_data['date'].min()} to {self.raw_data['date'].max()}")
+        print(f"Target horizon: {target_horizon} days")
+    
+    def prepare_data(self):
+        """Prepare data for training"""
+        print("\nStep 1: Preparing data for training...")
+        print("-" * 50)
+        
+        # Normalize column names and handle case sensitivity
+        self.processed_data = self._normalize_columns()
+        
+        # Define feature sets
+        self.feature_sets = self._define_feature_sets()
+        
+        # Find target variable
+        self.target_col = self._identify_target_variable()
+        
+        # Temporal split
+        self._create_temporal_splits()
+        
+        # Clean and prepare features
+        self._prepare_features()
+        
+        print(f"Data preparation complete!")
+        print(f"Features available: {sum(len(v) for v in self.feature_sets.values())}")
+        print(f"Target variable: {self.target_col}")
+        print(f"Train samples: {len(self.train_data['X']):,}")
+        print(f"Val samples: {len(self.val_data['X']):,}")
+        print(f"Test samples: {len(self.test_data['X']):,}")
+        
+    def _normalize_columns(self) -> pd.DataFrame:
+        """Normalize column names and data types"""
+        df = self.raw_data.copy()
+        
+        # Ensure date column exists and is datetime
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'])
+        else:
+            raise ValueError("No 'date' column found in data")
+        
+        # Ensure ticker column exists
+        if 'ticker' not in df.columns:
+            raise ValueError("No 'ticker' column found in data")
+        
+        # Filter data after 2000 (like original training code)
+        df = df[df['date'] >= '2000-01-01'].copy()
+        
+        print(f"Data filtered to post-2000: {len(df):,} rows")
+        return df
+    
+    def _define_feature_sets(self) -> Dict[str, List[str]]:
+        """Dynamically identify feature sets based on column patterns"""
+        all_cols = set(self.processed_data.columns)
+        
+        feature_sets = {
+            'basic': ['open', 'high', 'low', 'close', 'volume'],
+            'growth': [],
+            'technical_momentum': [],
+            'technical_volume': [],
+            'technical_patterns': [],
+            'technical_cycle': [],
+            'macro': [],
+            'time': [],
+            'custom': []
+        }
+        
+        for col in all_cols:
+            col_lower = col.lower()
+            
+            # Growth features (exclude future targets)
+            if col_lower.startswith('growth_') and 'future' not in col_lower:
+                feature_sets['growth'].append(col)
+            
+            # Technical indicators - momentum
+            elif any(pattern in col_lower for pattern in ['rsi', 'macd', 'adx', 'cci', 'stoch', 'aroon', 'willr', 'mom', 'roc', 'ppo']):
+                feature_sets['technical_momentum'].append(col)
+            
+            # Technical indicators - volume
+            elif any(pattern in col_lower for pattern in ['obv', 'ad', 'mfi', 'adosc']):
+                feature_sets['technical_volume'].append(col)
+            
+            # Technical indicators - patterns
+            elif col_lower.startswith('cdl'):
+                feature_sets['technical_patterns'].append(col)
+            
+            # Technical indicators - cycle/price
+            elif any(pattern in col_lower for pattern in ['ht_', 'avgprice', 'medprice', 'typprice', 'wclprice', 'atr', 'natr']):
+                feature_sets['technical_cycle'].append(col)
+            
+            # Macro indicators
+            elif any(pattern in col_lower for pattern in ['_yoy', '_qoq', 'fedfunds', 'dgs1', 'dgs5', 'dgs10']) or \
+                 (col_lower.startswith('growth_') and any(x in col_lower for x in ['btc', 'vix', 'dax', 'snp', 'gold', 'oil'])):
+                feature_sets['macro'].append(col)
+            
+            # Time features
+            elif any(pattern in col_lower for pattern in ['year', 'month', 'weekday', 'wom']):
+                feature_sets['time'].append(col)
+            
+            # Custom features
+            elif any(pattern in col_lower for pattern in ['sma', 'volatility', 'sharpe', 'ln_volume', 'high_minus_low']):
+                feature_sets['custom'].append(col)
+        
+        # Remove empty feature sets and basic columns that don't exist
+        feature_sets = {k: v for k, v in feature_sets.items() if v}
+        feature_sets['basic'] = [col for col in feature_sets.get('basic', []) if col in all_cols]
+        
+        print("Feature sets identified:")
+        for name, features in feature_sets.items():
+            print(f"  {name}: {len(features)} features")
+        
+        return feature_sets
+    
+    def _identify_target_variable(self) -> str:
+        """Find the target variable for prediction"""
+        target_candidates = []
+        
+        for col in self.processed_data.columns:
+            col_lower = col.lower()
+            # Look for binary target variables
+            if any(pattern in col_lower for pattern in ['is_positive', 'future']) and \
+               f'{self.target_horizon}d' in col_lower:
+                target_candidates.append(col)
+        
+        if not target_candidates:
+            raise ValueError(f"No suitable target variable found for {self.target_horizon}d horizon")
+        
+        # Use the first suitable target
+        target_col = target_candidates[0]
+        
+        # Check if it's binary
+        unique_vals = self.processed_data[target_col].dropna().unique()
+        if not all(val in [0, 1] for val in unique_vals):
+            print(f"Warning: Target variable '{target_col}' may not be binary: {unique_vals}")
+        
+        print(f"Target variable selected: {target_col}")
+        print(f"Target distribution: {self.processed_data[target_col].value_counts().to_dict()}")
+        
+        return target_col
+    
+    def _create_temporal_splits(self, train_ratio: float = 0.7, val_ratio: float = 0.15):
+        """Create temporal train/validation/test splits"""
+        df = self.processed_data.copy()
+        
+        # Sort by date
+        df = df.sort_values('date')
+        
+        # Calculate split points
+        n_total = len(df)
+        train_end = int(n_total * train_ratio)
+        val_end = int(n_total * (train_ratio + val_ratio))
+        
+        # Create splits
+        self.train_df = df.iloc[:train_end].copy()
+        self.val_df = df.iloc[train_end:val_end].copy()
+        self.test_df = df.iloc[val_end:].copy()
+        
+        print(f"Temporal splits created:")
+        print(f"  Train: {len(self.train_df):,} samples ({self.train_df['date'].min()} to {self.train_df['date'].max()})")
+        print(f"  Val:   {len(self.val_df):,} samples ({self.val_df['date'].min()} to {self.val_df['date'].max()})")
+        print(f"  Test:  {len(self.test_df):,} samples ({self.test_df['date'].min()} to {self.test_df['date'].max()})")
+    
+    def _prepare_features(self):
+        """Prepare feature matrices and target vectors"""
+        # Combine all feature sets
+        all_features = []
+        for feature_list in self.feature_sets.values():
+            all_features.extend(feature_list)
+        
+        # Remove duplicates and ensure features exist
+        all_features = list(set(all_features))
+        available_features = [f for f in all_features if f in self.processed_data.columns]
+        
+        if len(available_features) < len(all_features):
+            missing = set(all_features) - set(available_features)
+            print(f"Warning: {len(missing)} features not found: {list(missing)[:5]}...")
+        
+        # Prepare training data
+        X_train = self.train_df[available_features].copy()
+        X_val = self.val_df[available_features].copy()
+        X_test = self.test_df[available_features].copy()
+        
+        y_train = self.train_df[self.target_col].copy()
+        y_val = self.val_df[self.target_col].copy()
+        y_test = self.test_df[self.target_col].copy()
+        
+        # Clean data
+        for X in [X_train, X_val, X_test]:
+            X.replace([np.inf, -np.inf], np.nan, inplace=True)
+            X.fillna(0, inplace=True)
+        
+        # Remove rows where target is NaN
+        train_valid = ~y_train.isna()
+        val_valid = ~y_val.isna()
+        test_valid = ~y_test.isna()
+        
+        X_train, y_train = X_train[train_valid], y_train[train_valid]
+        X_val, y_val = X_val[val_valid], y_val[val_valid]
+        X_test, y_test = X_test[test_valid], y_test[test_valid]
+        
+        # Store processed data
+        self.train_data = {'X': X_train, 'y': y_train}
+        self.val_data = {'X': X_val, 'y': y_val}
+        self.test_data = {'X': X_test, 'y': y_test}
+        
+        # Store feature names
+        self.feature_names = available_features
+        
+        print(f"Features prepared: {len(self.feature_names)} total")
+        print(f"Final train samples: {len(self.train_data['X']):,}")
+        print(f"Final val samples: {len(self.val_data['X']):,}")
+        print(f"Final test samples: {len(self.test_data['X']):,}")
+        
+        # Check class balance
+        train_balance = self.train_data['y'].value_counts()
+        print(f"Train class balance: {train_balance.to_dict()}")
+    
+    def train_models(self):
+        """Train multiple models and compare performance"""
+        print("\nStep 2: Training models...")
+        print("-" * 50)
+        
+        # Use only training data for hyperparameter tuning to avoid data leakage
+        X_train = self.train_data['X']
+        y_train = self.train_data['y']
+        
+        # Model configurations
+        model_configs = {
+            'logistic_regression': {
+                'model': LogisticRegression(random_state=42, max_iter=1000),
+                'params': {
+                    'C': [0.1, 1.0, 10.0],
+                    'penalty': ['l1', 'l2'],
+                    'solver': ['liblinear']
+                },
+                'needs_scaling': True
+            },
+            'decision_tree': {
+                'model': DecisionTreeClassifier(random_state=42),
+                'params': {
+                    'max_depth': [10, 15, 20],
+                    'min_samples_split': [5, 10, 20],
+                    'min_samples_leaf': [1, 5, 10]
+                },
+                'needs_scaling': False
+            },
+            'random_forest': {
+                'model': RandomForestClassifier(random_state=42, n_jobs=-1),
+                'params': {
+                    'n_estimators': [100, 200],
+                    'max_depth': [10, 15, 20],
+                    'min_samples_split': [5, 10]
+                },
+                'needs_scaling': False
+            }
+        }
+        
+        # Add LightGBM if available
+        if LIGHTGBM_AVAILABLE:
+            model_configs['lightgbm'] = {
+                'model': lgb.LGBMClassifier(random_state=42, verbose=-1),
+                'params': {
+                    'n_estimators': [100, 200],
+                    'max_depth': [6, 8, 10],
+                    'learning_rate': [0.05, 0.1],
+                    'num_leaves': [31, 50]
+                },
+                'needs_scaling': False
+            }
+        else:
+            print("Skipping LightGBM (not installed)")
+        
+        # Add XGBoost if available
+        if XGBOOST_AVAILABLE:
+            model_configs['xgboost'] = {
+                'model': xgb.XGBClassifier(random_state=42, eval_metric='logloss'),
+                'params': {
+                    'n_estimators': [100, 200],
+                    'max_depth': [6, 8, 10],
+                    'learning_rate': [0.05, 0.1],
+                    'subsample': [0.8, 1.0]
+                },
+                'needs_scaling': False
+            }
+        else:
+            print("Skipping XGBoost (not installed)")
+        
+        print(f"Training {len(model_configs)} models: {', '.join(model_configs.keys())}")
+        
+        for model_name, config in model_configs.items():
+            print(f"\nTraining {model_name}...")
+            
+            try:
+                # Prepare data
+                if config.get('needs_scaling', False):
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X_train)
+                    X_test_scaled = scaler.transform(self.test_data['X'])
+                else:
+                    scaler = None
+                    X_scaled = X_train
+                    X_test_scaled = self.test_data['X']
+                
+                # Grid search for hyperparameters on training data only
+                grid_search = GridSearchCV(
+                    config['model'],
+                    config['params'],
+                    cv=3,
+                    scoring='roc_auc',
+                    n_jobs=-1,
+                    verbose=0
+                )
+                
+                grid_search.fit(X_scaled, y_train)
+                
+                # Get best model and retrain on train+val for final model
+                best_model = grid_search.best_estimator_
+                
+                # Now train on train+val for final model
+                X_train_full = pd.concat([self.train_data['X'], self.val_data['X']], ignore_index=True)
+                y_train_full = pd.concat([self.train_data['y'], self.val_data['y']], ignore_index=True)
+                
+                if scaler:
+                    X_train_full_scaled = scaler.fit_transform(X_train_full)
+                    X_test_scaled = scaler.transform(self.test_data['X'])
+                else:
+                    X_train_full_scaled = X_train_full
+                    X_test_scaled = self.test_data['X']
+                
+                best_model.fit(X_train_full_scaled, y_train_full)
+                
+                # Make predictions
+                y_pred = best_model.predict(X_test_scaled)
+                y_pred_proba = best_model.predict_proba(X_test_scaled)[:, 1]
+                
+                # Calculate metrics
+                metrics = {
+                    'accuracy': accuracy_score(self.test_data['y'], y_pred),
+                    'precision': precision_score(self.test_data['y'], y_pred, zero_division=0),
+                    'recall': recall_score(self.test_data['y'], y_pred, zero_division=0),
+                    'f1': f1_score(self.test_data['y'], y_pred, zero_division=0),
+                    'roc_auc': roc_auc_score(self.test_data['y'], y_pred_proba),
+                    'best_params': grid_search.best_params_
+                }
+                
+                # Store results
+                self.models[model_name] = {
+                    'model': best_model,
+                    'scaler': scaler,
+                    'predictions': y_pred,
+                    'probabilities': y_pred_proba,
+                    'metrics': metrics
+                }
+                
+                print(f"{model_name} - Precision: {metrics['precision']:.4f}, ROC-AUC: {metrics['roc_auc']:.4f}")
+                
+            except Exception as e:
+                print(f"Error training {model_name}: {e}")
+                continue
+        
+        if not self.models:
+            raise ValueError("No models trained successfully")
+        
+        # Select best model by precision
+        self.best_model_name = max(self.models.keys(), key=lambda x: self.models[x]['metrics']['precision'])
+        print(f"\nBest model (by precision): {self.best_model_name} (Precision: {self.models[self.best_model_name]['metrics']['precision']:.4f})")
+    
+    def evaluate_models(self):
+        """Detailed evaluation of all trained models"""
+        print("\nStep 3: Model evaluation...")
+        print("-" * 50)
+        
+        # Create comparison table
+        comparison_data = []
+        for model_name, model_info in self.models.items():
+            metrics = model_info['metrics']
+            comparison_data.append({
+                'Model': model_name.replace('_', ' ').title(),
+                'Precision': f"{metrics['precision']:.4f}",
+                'ROC-AUC': f"{metrics['roc_auc']:.4f}",
+                'Accuracy': f"{metrics['accuracy']:.4f}",
+                'Recall': f"{metrics['recall']:.4f}",
+                'F1-Score': f"{metrics['f1']:.4f}"
+            })
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        # Sort by precision (descending)
+        comparison_df['Precision_num'] = comparison_df['Precision'].astype(float)
+        comparison_df = comparison_df.sort_values('Precision_num', ascending=False).drop('Precision_num', axis=1)
+        
+        print("\nModel Comparison (sorted by Precision):")
+        print(comparison_df.to_string(index=False))
+        
+        # Detailed evaluation of best model (by precision)
+        best_model_info = self.models[self.best_model_name]
+        print(f"\nDetailed evaluation of best model by precision ({self.best_model_name.replace('_', ' ').title()}):")
+        print("-" * 40)
+        print(f"Precision: {best_model_info['metrics']['precision']:.4f}")
+        print(f"ROC-AUC: {best_model_info['metrics']['roc_auc']:.4f}")
+        print(f"Best parameters: {best_model_info['metrics']['best_params']}")
+        
+        # Classification report
+        print("\nClassification Report:")
+        print(classification_report(self.test_data['y'], best_model_info['predictions']))
+        
+        # Confusion matrix
+        cm = confusion_matrix(self.test_data['y'], best_model_info['predictions'])
+        print(f"\nConfusion Matrix:")
+        print(f"True Negatives: {cm[0,0]}, False Positives: {cm[0,1]}")
+        print(f"False Negatives: {cm[1,0]}, True Positives: {cm[1,1]}")
+        
+        # Feature importance (if available)
+        if hasattr(best_model_info['model'], 'feature_importances_'):
+            feature_importance = pd.DataFrame({
+                'feature': self.feature_names,
+                'importance': best_model_info['model'].feature_importances_
+            }).sort_values('importance', ascending=False)
+            
+            print(f"\nTop 15 Most Important Features:")
+            for i, (_, row) in enumerate(feature_importance.head(15).iterrows()):
+                print(f"  {i+1:2d}. {row['feature']:30s}: {row['importance']:.4f}")
+    
+    def make_predictions(self):
+        """Make predictions on all data for analysis"""
+        print("\nStep 4: Making predictions on all data...")
+        print("-" * 50)
+        
+        best_model_info = self.models[self.best_model_name]
+        model = best_model_info['model']
+        scaler = best_model_info['scaler']
+        
+        # Prepare all data
+        all_data = pd.concat([self.train_df, self.val_df, self.test_df], ignore_index=True)
+        X_all = all_data[self.feature_names].copy()
+        
+        # Clean data
+        X_all.replace([np.inf, -np.inf], np.nan, inplace=True)
+        X_all.fillna(0, inplace=True)
+        
+        # Scale if needed
+        if scaler:
+            X_all_scaled = scaler.transform(X_all)
+        else:
+            X_all_scaled = X_all
+        
+        # Make predictions
+        predictions = model.predict(X_all_scaled)
+        probabilities = model.predict_proba(X_all_scaled)[:, 1]
+        
+        # Add to data
+        all_data['prediction'] = predictions
+        all_data['probability'] = probabilities
+        
+        # Add ranking within each date
+        all_data['rank'] = all_data.groupby('date')['probability'].rank(method='first', ascending=False)
+        
+        # Store results
+        self.predictions_df = all_data
+        
+        print(f"Predictions completed for {len(all_data):,} samples")
+        print(f"Average probability: {probabilities.mean():.4f}")
+        print(f"Prediction distribution: {pd.Series(predictions).value_counts().to_dict()}")
+    
+    def save_results(self):
+        """Save models and results"""
+        print("\nStep 5: Saving results...")
+        print("-" * 50)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Save best model
+        best_model_info = self.models[self.best_model_name]
+        model_filename = f'../models/stock_prediction_model_{timestamp}.joblib'
+        
+        model_package = {
+            'model': best_model_info['model'],
+            'scaler': best_model_info['scaler'],
+            'feature_names': self.feature_names,
+            'target_variable': self.target_col,
+            'model_type': self.best_model_name,
+            'metrics': best_model_info['metrics'],
+            'training_date': timestamp
+        }
+        
+        joblib.dump(model_package, model_filename)
+        print(f"Best model saved: {model_filename}")
+        
+        # Save predictions
+        predictions_filename = f'../results/predictions_{timestamp}.parquet'
+        self.predictions_df.to_parquet(predictions_filename)
+        print(f"Predictions saved: {predictions_filename}")
+        
+        # Save evaluation metrics
+        metrics_filename = f'../results/model_comparison_{timestamp}.csv'
+        comparison_data = []
+        for model_name, model_info in self.models.items():
+            metrics = model_info['metrics']
+            comparison_data.append({
+                'Model': model_name,
+                'Precision': metrics['precision'],
+                'ROC_AUC': metrics['roc_auc'],
+                'Accuracy': metrics['accuracy'],
+                'Recall': metrics['recall'],
+                'F1_Score': metrics['f1'],
+                'Best_Params': str(metrics['best_params'])
+            })
+        
+        pd.DataFrame(comparison_data).to_csv(metrics_filename, index=False)
+        print(f"Metrics saved: {metrics_filename}")
+        
+        return model_filename, predictions_filename, metrics_filename
+    
+    def run_complete_training(self):
+        """Run the complete training pipeline"""
+        print("STOCK PREDICTION TRAINING PIPELINE")
+        print("=" * 70)
+        
+        start_time = datetime.now()
+        
+        try:
+            self.prepare_data()
+            self.train_models()
+            self.evaluate_models()
+            self.make_predictions()
+            model_file, pred_file, metrics_file = self.save_results()
+            
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            print("\n" + "=" * 70)
+            print("TRAINING PIPELINE COMPLETE!")
+            print("=" * 70)
+            print(f"Total training time: {duration:.1f} seconds")
+            print(f"Best model: {self.best_model_name}")
+            print(f"Best Precision: {self.models[self.best_model_name]['metrics']['precision']:.4f}")
+            print(f"Files saved:")
+            print(f"  Model: {model_file}")
+            print(f"  Predictions: {pred_file}")
+            print(f"  Metrics: {metrics_file}")
+            
+            return self.models[self.best_model_name]
+            
+        except Exception as e:
+            print(f"\nTraining pipeline failed: {e}")
+            raise
+
+
+def load_and_train(data_file: str, target_horizon: int = 30):
+    """
+    Convenience function to load data and run training
+    
+    Parameters:
+    -----------
+    data_file : str
+        Path to parquet file from stock pipeline
+    target_horizon : int
+        Prediction horizon in days
+    """
+    print(f"Loading data from: {data_file}")
+    data = pd.read_parquet(data_file)
+    
+    trainer = StockTrainingPipeline(data, target_horizon)
+    return trainer.run_complete_training()
+
+
+# Example usage
+if __name__ == "__main__":
+    # Example with pipeline integration
+    print("Stock Market Prediction Training Pipeline")
+    print("This script trains ML models on stock pipeline output")
+    print()
+    
+    # Option 1: Load from saved pipeline data
+    # data_file = "../data/stock_data_complete_20250830.parquet"
+    # best_model = load_and_train(data_file)
+    
+    # Option 2: Direct integration with pipeline
+    from stock_pipeline import StockDataPipeline
+    pipeline = StockDataPipeline(tickers=['AAPL', 'GOOGL', 'MSFT'])
+    pipeline_data = pipeline.run_complete_pipeline()
+    trainer = StockTrainingPipeline(pipeline_data)
+    best_model = trainer.run_complete_training()
+    
+    print("To use this training pipeline:")
+    print("1. Run your stock_pipeline.py to generate data")
+    print("2. Call: load_and_train('path_to_your_data.parquet')")
+    print("3. Or integrate directly with your pipeline")
