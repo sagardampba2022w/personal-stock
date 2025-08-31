@@ -10,6 +10,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+
+
+from pathlib import Path  # <-- add this (keep your existing datetime import)
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 from stock_pipeline import StockDataPipeline
 from tickerfetch import get_combined_universe
 from train_model_new import TrainModel  
@@ -19,36 +27,37 @@ class _TransformAdapter:
     def __init__(self, df: pd.DataFrame):
         self.transformed_df = df
 
+    
+
 def process_batch(batch_tickers, batch_num, total_batches, config):
     """Process a single batch of tickers"""
     print(f"\nBATCH {batch_num}/{total_batches}")
     print(f"Processing {len(batch_tickers)} tickers: {', '.join(batch_tickers[:5])}{'...' if len(batch_tickers) > 5 else ''}")
     print("=" * 70)
-    
+
     try:
-        # Initialize pipeline for this batch
         pipeline = StockDataPipeline(
             tickers=batch_tickers,
             lookbacks=config['LOOKBACKS'],
             horizons=config['HORIZONS'],
             binarize_thresholds=config['BINARY_THRESHOLDS']
         )
-        
-        # Run pipeline for this batch
+
         batch_result = pipeline.run_complete_pipeline()
-        
-        # Save batch result
+
         batch_filename = f"stock_data_batch_{batch_num:02d}.parquet"
-        pipeline.save_checkpoint(batch_filename)
-        
+        saved_path = pipeline.save_checkpoint(batch_filename)  # full path string
+        print(f"Batch {batch_num} saved to: {saved_path}")
         print(f"Batch {batch_num} completed: {batch_result.shape}")
-        
-        return batch_result, batch_filename
-        
+
+        # return the saved path, not just the filename
+        return batch_result, saved_path
+
     except Exception as e:
         print(f"Error in batch {batch_num}: {e}")
-        print(f"Skipping batch and continuing...")
+        print("Skipping batch and continuing...")
         return None, None
+
 
 def run_batch_pipeline(max_tickers=500, batch_size=100):
     """Run pipeline with batch processing for large ticker lists"""
@@ -79,51 +88,74 @@ def run_batch_pipeline(max_tickers=500, batch_size=100):
     print("=" * 70)
     
     # Process in batches
-    all_results = []
+    #all_results = []
     saved_files = []
     total_batches = (len(all_tickers) + batch_size - 1) // batch_size
     
     for i in range(0, len(all_tickers), batch_size):
         batch_num = (i // batch_size) + 1
         batch_tickers = all_tickers[i:i + batch_size]
-        
-        batch_result, batch_filename = process_batch(
-            batch_tickers, batch_num, total_batches, config
-        )
-        
+
+        batch_result, saved_path = process_batch(
+        batch_tickers, batch_num, total_batches, config
+)
+
         if batch_result is not None:
-            all_results.append(batch_result)
-            saved_files.append(batch_filename)
-        
-        # Clean up memory after each batch
-        if batch_result is not None:
-            del batch_result
-        gc.collect()
+            #all_results.append(batch_result)
+            saved_files.append(saved_path)   # full path
+                
+
+        # # Clean up memory after each batch
+        # if batch_result is not None:
+        #     del batch_result
+        # gc.collect()
     
-    # Combine all successful batches
-    if all_results:
-        print(f"\nCombining {len(all_results)} successful batches...")
-        final_data = pd.concat(all_results, ignore_index=True)
+    # # Combine all successful batches
+    # if all_results:
+    #     print(f"\nCombining {len(all_results)} successful batches...")
+    #     final_data = pd.concat(all_results, ignore_index=True)
         
-        # Save combined result
+    #     # Save combined result
+    #     combined_filename = f"stock_data_combined_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet"
+    #     combined_path = DATA_DIR / combined_filename
+    #     final_data.to_parquet(combined_path, index=False)
+    #     print(f"Combined data saved to: {combined_path}")
+
+        
+    #     print("=" * 70)
+    #     print("BATCH PIPELINE COMPLETE!")
+    #     print("=" * 70)
+    #     print(f"Final combined dataset: {final_data.shape}")
+    #     print(f"Successful batches: {len(all_results)}/{total_batches}")
+    #     print(f"Combined data saved to: ../data/{combined_filename}")
+    #     print(f"Individual batch files: {saved_files}")
+        
+    #     return final_data
+    # else:
+    #     print("No batches completed successfully!")
+    #     return None
+    
+    # AFTER
+    if saved_files:
+        print(f"\nCombining {len(saved_files)} successful batches from disk...")
+        final_data = pd.concat([pd.read_parquet(p) for p in saved_files], ignore_index=True)
+
         combined_filename = f"stock_data_combined_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet"
-        
-        # Ensure data directory exists
-        os.makedirs("../data", exist_ok=True)
-        final_data.to_parquet(f"../data/{combined_filename}")
-        
+        combined_path = DATA_DIR / combined_filename
+        final_data.to_parquet(combined_path, index=False)
+        print(f"Combined data saved to: {combined_path}")
+
         print("=" * 70)
         print("BATCH PIPELINE COMPLETE!")
         print("=" * 70)
         print(f"Final combined dataset: {final_data.shape}")
-        print(f"Successful batches: {len(all_results)}/{total_batches}")
-        print(f"Combined data saved to: ../data/{combined_filename}")
+        print(f"Successful batches: {len(saved_files)}/{total_batches}")
         print(f"Individual batch files: {saved_files}")
-        
         return final_data
     else:
         print("No batches completed successfully!")
         return None
+
 
 def run_small_pipeline(num_tickers=10):
     """Run pipeline for small number of tickers (testing/development)"""
@@ -376,9 +408,16 @@ def main():
         print("Running SMALL pipeline (10 tickers for testing)...")
         final_data = run_small_pipeline(num_tickers=10)
         
+    # elif RUN_MODE == "batch":
+    #     print("Running BATCH pipeline (500 tickers in batches of 100)...")
+    #     final_data = run_batch_pipeline(max_tickers=120, batch_size=100)
+
     elif RUN_MODE == "batch":
-        print("Running BATCH pipeline (500 tickers in batches of 100)...")
-        final_data = run_batch_pipeline(max_tickers=120, batch_size=100)
+        max_tickers = 120
+        batch_size = 100
+        print(f"Running BATCH pipeline ({max_tickers} tickers in batches of {batch_size})...")
+        final_data = run_batch_pipeline(max_tickers=max_tickers, batch_size=batch_size)
+
     
     else:
         print(f"Invalid RUN_MODE: {RUN_MODE}. Use 'small' or 'batch'")

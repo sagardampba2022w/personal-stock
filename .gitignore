@@ -202,10 +202,9 @@ gdrive-creds.json
 *.parquet.brotli
 *.csv
 
-/data-prep/artifacts/
-/archive-app/
 
 # But still exclude these specific paths
-/data-prep/artifacts/
+/app/artifacts/
 /archive-app/
 portfolio-manage/gdrive-creds.json
+/artifacts/
