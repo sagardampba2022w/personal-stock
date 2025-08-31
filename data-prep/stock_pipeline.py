@@ -312,25 +312,62 @@ class StockDataPipeline:
     #     print(f"Data saved to: {filename}")
     #     return filename
 
+    # def save_checkpoint(self, filename: str = None):
+    #     """Save the final dataset"""
+    #     if self.final_df is None:
+    #         raise ValueError("No data to save - run pipeline first")
+        
+    #     # Create data directory if it doesn't exist
+    #     import os
+    #     data_dir = "../data"  # Go up one level, then into data folder
+    #     os.makedirs(data_dir, exist_ok=True)
+        
+    #     if filename is None:
+    #         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #         filename = f"{data_dir}/stock_data_complete_{timestamp}.parquet"
+    #     else:
+    #         filename = f"{data_dir}/{filename}"
+        
+    #     self.final_df.to_parquet(filename)
+    #     print(f"Data saved to: {filename}")
+    #     return filename
+    
     def save_checkpoint(self, filename: str = None):
-        """Save the final dataset"""
+        """Save the final dataset to project_root/data/ regardless of execution directory"""
+        import os
+        from pathlib import Path
+        
+        # Find project root by looking for pyproject.toml or .git
+        current_path = Path(__file__).resolve()
+        project_root = None
+        
+        for parent in [current_path] + list(current_path.parents):
+            if (parent / 'pyproject.toml').exists() or (parent / '.git').exists():
+                project_root = parent
+                break
+        
+        if project_root is None:
+            # Fallback: assume we're in data-prep, so project root is parent
+            project_root = current_path.parent.parent
+        
+        # Data directory is always project_root/data
+        data_dir = project_root / "data"
+        data_dir.mkdir(exist_ok=True)
+        
+        if filename is None:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"stock_data_complete_{timestamp}.parquet"
+        
+        # Full path for the file
+        filepath = data_dir / filename
+        
         if self.final_df is None:
             raise ValueError("No data to save - run pipeline first")
         
-        # Create data directory if it doesn't exist
-        import os
-        data_dir = "../data"  # Go up one level, then into data folder
-        os.makedirs(data_dir, exist_ok=True)
-        
-        if filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{data_dir}/stock_data_complete_{timestamp}.parquet"
-        else:
-            filename = f"{data_dir}/{filename}"
-        
-        self.final_df.to_parquet(filename)
-        print(f"Data saved to: {filename}")
-        return filename
+        self.final_df.to_parquet(filepath)
+        print(f"Data saved to: {filepath}")
+        return str(filepath)
 
 # # Example usage
 # def main():
