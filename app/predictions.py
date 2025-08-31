@@ -160,8 +160,10 @@ class PredictionComparator:
         self.target_col = target_col
         self.prediction_cols: List[str] = []
 
+    # Update your PredictionComparator.add_manual_predictions() method
+
     def add_manual_predictions(self) -> List[str]:
-        """Add rule-based manual predictions with alias resolution and neutral defaults."""
+        """Add rule-based manual predictions with CORRECTED macro column names."""
         print("Creating manual rule-based predictions...")
 
         def _alias_series(df: pd.DataFrame, aliases: List[str]) -> Optional[pd.Series]:
@@ -191,29 +193,50 @@ class PredictionComparator:
             (growth_30d > 1) & (growth_snp500_30d > 1)
         ).astype(np.int8)
 
-        # Macro aliases
-        dgs10 = _alias_series(self.df, ["dgs10", "DGS10", "macro_dgs10", "macro.DGS10"])
-        dgs5 = _alias_series(self.df, ["dgs5", "DGS5", "macro_dgs5", "macro.DGS5"])
-        fedfunds = _alias_series(self.df, ["fedfunds", "FEDFUNDS", "macro_fedfunds", "macro.FEDFUNDS"])
+        # CORRECTED: Use actual column names from your data
+        # 10-Year Treasury YoY growth rate
+        dgs10_yoy = _alias_series(self.df, ["dgs10_yoy"])
+        # 5-Year Treasury YoY growth rate  
+        dgs5_yoy = _alias_series(self.df, ["dgs5_yoy"])
+        # Federal Funds Rate YoY growth rate
+        fedfunds_yoy = _alias_series(self.df, ["fedfunds_yoy"])
 
-        # pred3: Low rate env (apply only if both are available)
-        if dgs10 is not None and dgs5 is not None:
-            self.df["pred3_manual_dgs10_5"] = ((dgs10 <= 4) & (dgs5 <= 1)).astype(np.int8)
+        # pred3: Low rate environment (declining rates YoY)
+        if dgs10_yoy is not None and dgs5_yoy is not None:
+            # Both 10Y and 5Y rates declining year-over-year
+            self.df["pred3_manual_declining_rates"] = (
+                (dgs10_yoy < 0) & (dgs5_yoy < 0)
+            ).astype(np.int8)
         else:
-            self.df["pred3_manual_dgs10_5"] = 0
+            self.df["pred3_manual_declining_rates"] = 0
 
-        # pred4: High 10Y but accommodative Fed (apply only if both are available)
-        if dgs10 is not None and fedfunds is not None:
-            self.df["pred4_manual_dgs10_fedfunds"] = ((dgs10 > 4) & (fedfunds <= 4.795)).astype(np.int8)
+        # pred4: Fed easing cycle (Fed Funds declining YoY) 
+        if fedfunds_yoy is not None:
+            # Federal Funds Rate declining year-over-year
+            self.df["pred4_manual_fed_easing"] = (fedfunds_yoy < -0.1).astype(np.int8)  # >10% decline
         else:
-            self.df["pred4_manual_dgs10_fedfunds"] = 0
+            self.df["pred4_manual_fed_easing"] = 0
+
+        # pred5: NEW - VIX fear contrarian signal
+        growth_vix_30d = _safe_num(self.df, "growth_vix_30d", 0.0)
+        # Buy when VIX spiked >20% in past 30 days (contrarian)
+        self.df["pred5_manual_vix_contrarian"] = (growth_vix_30d > 0.2).astype(np.int8)
+
+        # pred6: NEW - Bitcoin momentum divergence
+        growth_btc_30d = _safe_num(self.df, "growth_btc_30d", 0.0)
+        # Stock momentum + Bitcoin momentum
+        self.df["pred6_manual_stock_btc_momentum"] = (
+            (growth_30d > 1.0) & (growth_btc_30d > 1.0)
+        ).astype(np.int8)
 
         manual_preds = [
             "pred0_manual_cci",
-            "pred1_manual_prev_g1",
+            "pred1_manual_prev_g1", 
             "pred2_manual_prev_g1_and_snp",
-            "pred3_manual_dgs10_5",
-            "pred4_manual_dgs10_fedfunds",
+            "pred3_manual_declining_rates",      # UPDATED
+            "pred4_manual_fed_easing",           # UPDATED  
+            "pred5_manual_vix_contrarian",       # NEW
+            "pred6_manual_stock_btc_momentum",   # NEW
         ]
         self.prediction_cols.extend(manual_preds)
 
@@ -679,7 +702,14 @@ def compare_predictions_on_existing_data() -> pd.DataFrame:
 
 def main():
     """Entry point (predict-only)"""
+
+    # In your predictions.py, add this at the start of main():
+    final_data = load_latest_data()
+    target_cols = [c for c in final_data.columns if 'is_positive' in c and 'future' in c]
+    print(f"Target columns found: {target_cols}")
+    print(f"Will use: is_positive_growth_30d_future (if exists)")
     print("MODE: Predict-only (load data + model; no training)")
+    
     results = compare_predictions_on_existing_data()
 
     if results is not None and not results.empty:

@@ -57,31 +57,69 @@ def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# def add_growth_features(
+#     df: pd.DataFrame,
+#     lookbacks: List[int] = [1, 3, 7, 30, 90, 252, 365],
+#     horizons: List[int] = [30],
+#     binarize_thresholds: Optional[Dict[int, float]] = None
+# ) -> pd.DataFrame:
+#     df = df.copy()
+#     # 1) historical growth
+#     for j in lookbacks:
+#         df[f"growth_{j}d"] = df["Close"] / df["Close"].shift(j)
+
+#     # 2) forward-looking growth
+#     for h in horizons:
+#         df[f"growth_future_{h}d"] = df["Close"].shift(-h) / df["Close"]
+
+#     # 3) optional binarization - CREATE BOTH NAMING CONVENTIONS
+#     if binarize_thresholds:
+#         for h, thresh in binarize_thresholds.items():
+#             if h not in horizons:
+#                 raise ValueError(f"horizon {h} not in `horizons` list")
+#             col = f"growth_future_{h}d"
+#             # Your pipeline naming
+#             df[f"is_positive_future_{h}d"] = (df[col] > thresh).astype(int)
+#             # Training code expected naming
+#             df[f"is_positive_growth_{h}d_future"] = (df[col] > thresh).astype(int)
+
+#     return df
+
+
+# In extract.py - clean up the target variable creation
+
 def add_growth_features(
     df: pd.DataFrame,
     lookbacks: List[int] = [1, 3, 7, 30, 90, 252, 365],
     horizons: List[int] = [30],
     binarize_thresholds: Optional[Dict[int, float]] = None
 ) -> pd.DataFrame:
+    """
+    Add growth features with clean target variable naming
+    """
     df = df.copy()
-    # 1) historical growth
+    
+    # 1) Historical growth (backward-looking)
     for j in lookbacks:
         df[f"growth_{j}d"] = df["Close"] / df["Close"].shift(j)
 
-    # 2) forward-looking growth
+    # 2) Forward-looking growth (continuous target)
     for h in horizons:
         df[f"growth_future_{h}d"] = df["Close"].shift(-h) / df["Close"]
 
-    # 3) optional binarization - CREATE BOTH NAMING CONVENTIONS
+    # 3) Binary targets (for classification)
     if binarize_thresholds:
         for h, thresh in binarize_thresholds.items():
             if h not in horizons:
                 raise ValueError(f"horizon {h} not in `horizons` list")
-            col = f"growth_future_{h}d"
-            # Your pipeline naming
-            df[f"is_positive_future_{h}d"] = (df[col] > thresh).astype(int)
-            # Training code expected naming
-            df[f"is_positive_growth_{h}d_future"] = (df[col] > thresh).astype(int)
+            
+            continuous_col = f"growth_future_{h}d"
+            
+            # Create ONE consistent binary target name
+            binary_col = f"is_positive_growth_{h}d_future"
+            df[binary_col] = (df[continuous_col] > thresh).astype(int)
+            
+            print(f"Created binary target: {binary_col} (threshold={thresh})")
 
     return df
 

@@ -81,7 +81,7 @@ def run_batch_pipeline(max_tickers=500, batch_size=100):
     config = {
         'LOOKBACKS': [1, 3, 7, 30, 90, 252, 365],
         'HORIZONS': [30],
-        'BINARY_THRESHOLDS': {30: 1.05}
+        'BINARY_THRESHOLDS': {30: 1.01}
     }
     
     print(f"Processing {len(all_tickers)} tickers in batches of {batch_size}")
@@ -167,7 +167,7 @@ def run_small_pipeline(num_tickers=10):
     # Config
     LOOKBACKS = [1, 3, 7, 30, 90, 252, 365]
     HORIZONS = [30]
-    BINARY_THRESHOLDS = {30: 1.05}
+    BINARY_THRESHOLDS = {30: 1.01}
 
     # Run data pipeline
     pipeline = StockDataPipeline(
@@ -414,7 +414,7 @@ def main():
 
     elif RUN_MODE == "batch":
         max_tickers = 120
-        batch_size = 100
+        batch_size = 50
         print(f"Running BATCH pipeline ({max_tickers} tickers in batches of {batch_size})...")
         final_data = run_batch_pipeline(max_tickers=max_tickers, batch_size=batch_size)
 
