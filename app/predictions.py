@@ -16,7 +16,9 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 # File-relative directories
-DATA_DIR = os.path.join(HERE, "data")
+#DATA_DIR = os.path.join(HERE, "data")
+DATA_DIR = os.path.join(HERE, "..", "data")  # Go up one level
+
 ARTIFACTS_DIR = os.path.join(HERE, "artifacts")
 RESULTS_DIR = os.path.join(HERE, "results")
 
@@ -62,7 +64,36 @@ def load_latest_data() -> pd.DataFrame:
     df = pd.read_parquet(newest)
     return df
 
+# Add this to run_predictions.py after imports:
+def load_latest_data_fixed():
+    """Fixed version that uses correct paths"""
+    patterns = [
+        "stock_data_combined_*.parquet",
+        "stock_data_complete_*.parquet",
+        "stock_data_small_*.parquet",  # Add this pattern too
+        "stock_data_batch_*.parquet",
+    ]
+    
+    latest_file = None
+    latest_time = 0
+    
+    for pattern in patterns:
+        files = list(DATA_DIR.glob(pattern))  # Use your corrected DATA_DIR
+        for file in files:
+            if file.stat().st_mtime > latest_time:
+                latest_time = file.stat().st_mtime
+                latest_file = file
+    
+    if latest_file is None:
+        raise FileNotFoundError(f"No parquet files found in {DATA_DIR}")
+    
+    print(f"[load_latest_data] Using: {latest_file.name}")
+    return pd.read_parquet(latest_file)
 
+# Then in your PredictionRunner.load_data_and_model() method, replace:
+# self.data = load_latest_data()
+# with:
+# self.data = load_latest_data_fixed()
 def _try_read_feature_sidecar(artifacts_dir: str) -> Optional[List[str]]:
     """
     Attempt to read feature order from a sidecar JSON placed in artifacts_dir.
