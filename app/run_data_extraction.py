@@ -37,7 +37,7 @@ class DataExtractionRunner:
         self.config = {
             'LOOKBACKS': [1, 3, 7, 30, 90, 252, 365],
             'HORIZONS': [30],
-            'BINARY_THRESHOLDS': {30: 1.01}  # 1% gain threshold
+            'BINARY_THRESHOLDS': {30: 1.00}  # 1% gain threshold
         }
         self.universe_df = None
         self.final_data = None

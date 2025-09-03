@@ -23,6 +23,9 @@ from typing import Optional
 
 import pandas as pd
 import numpy as np
+import joblib
+import json
+
 
 HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE))
@@ -147,7 +150,7 @@ class ModelTrainingRunner:
         
         return self.train_model
     
-    def run_basic_training(self, max_depth=17, n_estimators=200, class_weight=None):
+    def run_basic_training(self, max_depth=None, n_estimators=100, class_weight=None):
         """Run basic model training with default hyperparameters"""
         print("\n" + "=" * 60)
         print("BASIC MODEL TRAINING")
@@ -155,12 +158,17 @@ class ModelTrainingRunner:
         
         if self.train_model is None:
             self.prepare_model()
+
+             # Map CLI string to actual None/balanced
+        if isinstance(class_weight, str):
+            class_weight = None if class_weight.strip().lower() == "none" else class_weight
+        
         
         print(f"Training Random Forest:")
         print(f"  max_depth: {max_depth}")
         print(f"  n_estimators: {n_estimators}")
         print(f"  class_weight: {class_weight}")
-        
+
         # Train model on train set only (honest evaluation)
         print("\n🔧 Training on TRAIN set only (for honest evaluation)...")
         self.train_model.train_random_forest(
@@ -182,6 +190,8 @@ class ModelTrainingRunner:
             splits=('validation', 'test')
         )
         print(honest_results.to_string(index=False))
+        self._save_artifacts(suffix="train_only", threshold=best_threshold)
+
         
         # Also show results at 0.5 threshold
         print(f"\n📊 Model Evaluation at 0.5 threshold:")
@@ -202,9 +212,13 @@ class ModelTrainingRunner:
             splits=('test',)
         )
         print(final_results.to_string(index=False))
+
         
         # Save model
-        self.train_model.persist(str(ARTIFACTS_DIR))
+        self._save_artifacts(suffix="train_valid", threshold=best_threshold)
+
+        #self.train_model.persist(str(ARTIFACTS_DIR))
+
         
         # Store results
         self.results = {
@@ -254,6 +268,8 @@ class ModelTrainingRunner:
         
         # Save best model
         model_path = tuner.save_best_model(str(ARTIFACTS_DIR))
+        #self._save_artifacts(suffix="tuned_best", threshold=None)
+
         
         # Store results
         self.results = {
@@ -381,6 +397,45 @@ class ModelTrainingRunner:
         print(f"\n💾 Model artifacts saved to: {ARTIFACTS_DIR}")
         print(f"📊 Ready for predictions: python run_predictions.py")
 
+    def _save_artifacts(self, suffix: str, threshold: float | None = None) -> tuple[str, str]:
+        """
+        Save the current model with a suffix (e.g., 'train_only', 'train_valid', 'tuned_best')
+        plus a timestamp. Also writes a meta JSON with feature order, target column, and params.
+        """
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name = f"random_forest_{suffix}_{ts}.joblib"
+        meta_name = f"rf_meta_{suffix}_{ts}.json"
+
+        model_path = ARTIFACTS_DIR / model_name
+        meta_path = ARTIFACTS_DIR / meta_name
+
+        # Save the sklearn estimator
+        joblib.dump(self.train_model.model, model_path)
+
+        # Try to resolve the exact training feature order
+        if hasattr(self.train_model.model, "feature_names_in_"):
+            feat_cols = list(self.train_model.model.feature_names_in_)
+        else:
+            feat_cols = list(getattr(self.train_model, "_inference_feature_columns", self.train_model.X_train.columns))
+
+        # Build metadata
+        meta = {
+            "saved_at": ts,
+            "suffix": suffix,
+            "target_col": getattr(self.train_model, "target_col", None),
+            "inference_feature_columns": feat_cols,
+            "best_threshold": float(threshold) if threshold is not None else None,
+            "model_params": getattr(self.train_model.model, "get_params", lambda: {})(),
+        }
+
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=2)
+
+        print(f"Saved model to {model_path}")
+        print(f"Saved meta  to {meta_path}")
+        return str(model_path), str(meta_path)
+
+
 
 def main():
     parser = argparse.ArgumentParser(description="Model Training Pipeline")
@@ -392,17 +447,17 @@ def main():
                        help="Start date for data filtering (YYYY-MM-DD)")
     
     # Basic training parameters
-    parser.add_argument("--max-depth", type=int, default=17,
+    parser.add_argument("--max-depth", type=int, default=None,
                        help="Max depth for basic training")
-    parser.add_argument("--n-estimators", type=int, default=200,
+    parser.add_argument("--n-estimators", type=int, default=100,
                        help="Number of estimators for basic training")
-    parser.add_argument("--class-weight", type=str, choices=[None, "balanced"], default=None,
+    parser.add_argument("--class-weight", type=str, choices=["None", "balanced"], default="None",
                        help="Class weight for basic training")
     
     # Tuning parameters
     parser.add_argument("--tune-strategy", choices=["coarse", "fine", "progressive", "random"], default="progressive",
                        help="Hyperparameter tuning strategy")
-    parser.add_argument("--tune-validation", choices=["static", "walk_forward"], default="walk_forward",
+    parser.add_argument("--tune-validation", choices=["static", "walk_forward"], default="static",
                        help="Validation method for tuning")
     parser.add_argument("--tune-metric", choices=["f1", "precision", "recall", "roc_auc"], default="f1",
                        help="Primary metric for tuning")

@@ -9,8 +9,8 @@ from typing import List, Optional
 @dataclass
 class TrainConfig:
     target_preference: List[str] = None
-    rf_max_depth: int = 17
-    rf_n_estimators: int = 200
+    rf_max_depth: Optional[int] = None 
+    rf_n_estimators: int = 100
     random_state: int = 42
     n_jobs: int = -1
 

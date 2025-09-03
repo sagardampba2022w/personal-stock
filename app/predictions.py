@@ -9,18 +9,31 @@ from typing import List, Tuple, Optional, Dict
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import confusion_matrix  # <-- add
 
-# Ensure local imports resolve
-HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.append(HERE)
 
-# File-relative directories
-#DATA_DIR = os.path.join(HERE, "data")
-DATA_DIR = os.path.join(HERE, "..", "data")  # Go up one level
 
-ARTIFACTS_DIR = os.path.join(HERE, "artifacts")
-RESULTS_DIR = os.path.join(HERE, "results")
+# # Ensure local imports resolve
+# HERE = os.path.dirname(os.path.abspath(__file__))
+# if HERE not in sys.path:
+#     sys.path.append(HERE)
+
+# # File-relative directories
+# #DATA_DIR = os.path.join(HERE, "data")
+# DATA_DIR = os.path.join(HERE, "..", "data")  # Go up one level
+
+# ARTIFACTS_DIR = os.path.join(HERE, "artifacts")
+# RESULTS_DIR = os.path.join(HERE, "results")
+
+
+# File-relative directories (resolve to parent/<dir>)
+HERE = Path(__file__).resolve().parent
+DATA_DIR = (HERE / ".." / "data").resolve()
+ARTIFACTS_DIR = (HERE / ".." / "artifacts").resolve()
+RESULTS_DIR = (HERE / ".." / "results").resolve()
+
 
 from train_model_new import TrainModel  # only used to prepare dataframe/splits
 
@@ -34,35 +47,66 @@ class _TransformAdapter:
 # =========================
 # Loaders (data + model)
 # =========================
+# def load_latest_data() -> pd.DataFrame:
+#     """
+#     Finds the newest combined/complete/batch parquet produced by your pipeline.
+#     Returns a DataFrame.
+#     """
+#     patterns = [
+#         "stock_data_combined_*.parquet",  # highest priority
+#         "stock_data_complete_*.parquet",
+#         "stock_data_batch_*.parquet",
+#     ]
+
+#     newest = None
+#     newest_mtime = -1
+
+#     for pat in patterns:
+#         for path in glob.glob(os.path.join(DATA_DIR, pat)):
+#             mtime = os.path.getmtime(path)
+#             if mtime > newest_mtime:
+#                 newest = path
+#                 newest_mtime = mtime
+
+#     if newest is None:
+#         raise FileNotFoundError(
+#             f"No parquet files found in {DATA_DIR} matching {patterns}."
+#         )
+
+#     print(f"[load_latest_data] Using: {os.path.basename(newest)}")
+#     df = pd.read_parquet(newest)
+#     return df
+
+
 def load_latest_data() -> pd.DataFrame:
     """
-    Finds the newest combined/complete/batch parquet produced by your pipeline.
-    Returns a DataFrame.
+    Finds the newest parquet produced by your pipeline.
+    Priorities: combined > complete > batch > small; fallback to any *.parquet.
     """
     patterns = [
-        "stock_data_combined_*.parquet",  # highest priority
+        "stock_data_combined_*.parquet",
         "stock_data_complete_*.parquet",
         "stock_data_batch_*.parquet",
+        "stock_data_small_*.parquet",   # <-- added
     ]
 
-    newest = None
-    newest_mtime = -1
-
+    # collect candidates in priority order
+    candidates: list[Path] = []
     for pat in patterns:
-        for path in glob.glob(os.path.join(DATA_DIR, pat)):
-            mtime = os.path.getmtime(path)
-            if mtime > newest_mtime:
-                newest = path
-                newest_mtime = mtime
+        candidates.extend(sorted(DATA_DIR.glob(pat), key=lambda p: p.stat().st_mtime))
 
-    if newest is None:
+    # fallback to any parquet in data/
+    if not candidates:
+        candidates = sorted(DATA_DIR.glob("*.parquet"), key=lambda p: p.stat().st_mtime)
+
+    if not candidates:
         raise FileNotFoundError(
-            f"No parquet files found in {DATA_DIR} matching {patterns}."
+            f"No parquet files found in {DATA_DIR} matching {patterns + ['*.parquet']}."
         )
 
-    print(f"[load_latest_data] Using: {os.path.basename(newest)}")
-    df = pd.read_parquet(newest)
-    return df
+    latest = candidates[-1]
+    print(f"[load_latest_data] Using: {latest.name}  (from {DATA_DIR})")
+    return pd.read_parquet(latest)
 
 # Add this to run_predictions.py after imports:
 def load_latest_data_fixed():
@@ -445,11 +489,21 @@ class PredictionComparator:
 
     def _calculate_prediction_metrics(self, y_true, y_pred, eval_df, pred_col) -> dict:
         from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+        from sklearn.metrics import confusion_matrix  # <-- add
+        
+
+
+
+
 
         accuracy = accuracy_score(y_true, y_pred)
         precision = precision_score(y_true, y_pred, zero_division=0)
         recall = recall_score(y_true, y_pred, zero_division=0)
         f1 = f1_score(y_true, y_pred, zero_division=0)
+
+        # Debug: print confusion matrix (remove after validation)
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+        print(f"  {pred_col}: tp={tp} fp={fp} tn={tn} fn={fn}")
 
         n_predictions = int(y_pred.sum())
         prediction_rate = float(y_pred.mean())
@@ -487,13 +541,55 @@ class PredictionComparator:
             "avg_growth_lift": growth_lift,
         }
 
+    # def evaluate_all_predictions(self, split: str = "test") -> pd.DataFrame:
+    #     """Evaluate all prediction strategies - RANKED BY PRECISION"""
+    #     print(f"\nEvaluating all {len(self.prediction_cols)} prediction strategies on {split} set...")
+    #     print("PRIMARY METRIC: PRECISION (minimizing false positives)")
+
+    #     eval_df = self.df[self.df["split"] == split].copy()
+    #     if len(eval_df) == 0:
+    #         print(f"No data found for split '{split}'")
+    #         return pd.DataFrame()
+
+    #     results = []
+    #     for pred_col in self.prediction_cols:
+    #         if pred_col not in eval_df.columns:
+    #             continue
+    #         y_pred = eval_df[pred_col]
+    #         y_true = eval_df[self.target_col]
+
+    #         # Skip strategies that make no predictions
+    #         if y_pred.sum() == 0:
+    #             print(f"  Skipping {pred_col}: No positive predictions")
+    #             continue
+
+    #         metrics = self._calculate_prediction_metrics(y_true, y_pred, eval_df, pred_col)
+    #         metrics["strategy"] = pred_col
+    #         results.append(metrics)
+
+    #     results_df = pd.DataFrame(results)
+
+    #     # RANK BY PRECISION (primary), then F1 (secondary), then daily_improvement (tertiary)
+    #     if not results_df.empty:
+    #         results_df = results_df.sort_values(
+    #             ["precision", "f1_score", "daily_improvement"],
+    #             ascending=[False, False, False],
+    #         )
+
+    #     return results_df
+    
     def evaluate_all_predictions(self, split: str = "test") -> pd.DataFrame:
-        """Evaluate all prediction strategies - RANKED BY PRECISION"""
+        """Evaluate all prediction strategies on a given split — RANKED BY PRECISION.
+
+        - Strictly aligns/cleans labels and predictions (numeric coercion, NaN drop)
+        - Skips strategies that end up with no positive predictions after cleaning
+        - Sorts by precision (desc), then F1 (desc), then daily_improvement (desc)
+        """
         print(f"\nEvaluating all {len(self.prediction_cols)} prediction strategies on {split} set...")
         print("PRIMARY METRIC: PRECISION (minimizing false positives)")
 
         eval_df = self.df[self.df["split"] == split].copy()
-        if len(eval_df) == 0:
+        if eval_df.empty:
             print(f"No data found for split '{split}'")
             return pd.DataFrame()
 
@@ -501,15 +597,26 @@ class PredictionComparator:
         for pred_col in self.prediction_cols:
             if pred_col not in eval_df.columns:
                 continue
-            y_pred = eval_df[pred_col]
-            y_true = eval_df[self.target_col]
 
-            # Skip strategies that make no predictions
-            if y_pred.sum() == 0:
-                print(f"  Skipping {pred_col}: No positive predictions")
+            # --- strict alignment + cleaning ---
+            pair = eval_df[[self.target_col, pred_col]].copy()
+            pair[self.target_col] = pd.to_numeric(pair[self.target_col], errors="coerce")
+            pair[pred_col] = pd.to_numeric(pair[pred_col], errors="coerce")
+            pair = pair.dropna(subset=[self.target_col, pred_col])
+
+            if pair.empty:
+                print(f"  Skipping {pred_col}: no valid rows after cleaning")
                 continue
 
-            metrics = self._calculate_prediction_metrics(y_true, y_pred, eval_df, pred_col)
+            y_true = pair[self.target_col].astype(int).to_numpy()
+            y_pred = pair[pred_col].astype(int).to_numpy()
+
+            # Skip strategies that make no predictions (after cleaning)
+            if y_pred.sum() == 0:
+                print(f"  Skipping {pred_col}: No positive predictions (after cleaning)")
+                continue
+
+            metrics = self._calculate_prediction_metrics(y_true, y_pred, pair, pred_col)
             metrics["strategy"] = pred_col
             results.append(metrics)
 
@@ -520,9 +627,10 @@ class PredictionComparator:
             results_df = results_df.sort_values(
                 ["precision", "f1_score", "daily_improvement"],
                 ascending=[False, False, False],
-            )
+            ).reset_index(drop=True)
 
         return results_df
+
 
     def print_comparison_report(self, results_df: pd.DataFrame):
         """Print comprehensive comparison report - PRECISION FOCUSED"""
@@ -694,6 +802,14 @@ def compare_predictions_on_existing_data() -> pd.DataFrame:
     target_col = getattr(tm, "target_col", "is_positive_growth_30d_future")
     print(f"✓ Loaded model; using {len(feature_cols)} features for inference")
     print(f"  Target column: {target_col}")
+
+    # Leak check: no 'future' features should be in inference list
+    leak_feats = [c for c in feature_cols if 'future' in c.lower()]
+    if leak_feats:
+        print("WARNING: potential leakage features found in model inputs:")
+        for lf in leak_feats[:10]:
+            print("  -", lf)
+
 
     # Step 4: Generate predictions
     print("\nStep 4: Generating predictions (manual, ML, ensemble)...")
