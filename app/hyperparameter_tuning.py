@@ -64,34 +64,40 @@ class RFHyperparameterTuner:
         print(f"  Features: {len(self.tm.X_train.columns):,}, Target: {self.tm.target_col}")
     
     def get_param_grids(self) -> Dict[str, Dict]:
-        """Define parameter grids for different tuning strategies"""
+        """Optimized parameter grids for RandomForest tuning"""
         return {
+            # ⚡ Coarse grid: quick probe (fast, < 10 min)
             'coarse': {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [10, 15, 20, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4],
-                'max_features': ['sqrt', 'log2', None],
-                'class_weight': [None, 'balanced']
+                'n_estimators': [100, 200],
+                'max_depth': [12, 18],             # focus mid-depth
+                'min_samples_split': [2, 5],
+                'min_samples_leaf': [1, 2],
+                'max_features': ['sqrt', 0.3],
+                'class_weight': [None, 'balanced'],
             },
+
+            # ✅ Fine grid: balanced detail (~30–60 min, ~216 combos)
             'fine': {
-                'n_estimators': [150, 200, 250, 300],
-                'max_depth': [12, 15, 17, 20, 25],
-                'min_samples_split': [2, 3, 5, 7],
-                'min_samples_leaf': [1, 2, 3],
-                'max_features': ['sqrt', 'log2', 0.3, 0.5],
-                'class_weight': [None, 'balanced', {0: 1, 1: 2}, {0: 1, 1: 3}]
+                'n_estimators': [150, 200, 300],
+                'max_depth': [12, 15, 18, 22],
+                'min_samples_split': [2, 5, 7],
+                'min_samples_leaf': [1, 2],
+                'max_features': ['sqrt', 0.3, 0.5],
+                'class_weight': [None, 'balanced'],
             },
+
+            # 🎲 Random grid: broad exploration (use with max_combinations=100–200)
             'random': {
-                'n_estimators': [50, 75, 100, 150, 200, 250, 300, 400, 500],
-                'max_depth': [5, 8, 10, 12, 15, 17, 20, 25, 30, None],
-                'min_samples_split': [2, 3, 5, 7, 10, 15, 20],
-                'min_samples_leaf': [1, 2, 3, 4, 5, 8],
-                'max_features': ['sqrt', 'log2', 0.2, 0.3, 0.5, 0.7, None],
-                'bootstrap': [True, False],
-                'class_weight': [None, 'balanced', {0: 1, 1: 1.5}, {0: 1, 1: 2}, {0: 1, 1: 3}]
-            }
+                'n_estimators': [100, 150, 200, 250, 300],
+                'max_depth': [10, 12, 15, 18, 22, None],  # include one "None" test
+                'min_samples_split': [2, 5, 7, 10],
+                'min_samples_leaf': [1, 2, 3],
+                'max_features': ['sqrt', 0.3, 0.5],
+                'bootstrap': [True],
+                'class_weight': [None, 'balanced', {0: 1, 1: 2}],
+            },
         }
+
     
     def evaluate_params(self, params: Dict[str, Any], 
                        validation_method: str = 'static',
