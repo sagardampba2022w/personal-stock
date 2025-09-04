@@ -6,11 +6,12 @@ import json
 import warnings
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
+import time
+
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import ParameterGrid, ParameterSampler
 from sklearn.metrics import (
@@ -257,6 +258,10 @@ class RFHyperparameterTuner:
                    validation_method: str = 'static') -> pd.DataFrame:
         """Grid search with progress tracking"""
         print(f"Grid search with {validation_method} validation...")
+
+
+        start_time = time.time()
+
         
         param_combinations = list(ParameterGrid(param_grid))
         if max_combinations and len(param_combinations) > max_combinations:
@@ -267,8 +272,17 @@ class RFHyperparameterTuner:
         
         results = []
         for i, params in enumerate(param_combinations, 1):
-            if i % 10 == 0 or i == len(param_combinations):
-                print(f"  Progress: {i}/{len(param_combinations)} ({i/len(param_combinations)*100:.1f}%)")
+            elapsed = time.time() - start_time
+            avg_time = elapsed / i
+            remaining = avg_time * (len(param_combinations) - i)
+            
+            print(f"  Progress: {i}/{len(param_combinations)} "
+                f"({i/len(param_combinations)*100:.1f}%) "
+                f"- ETA: {remaining/60:.1f} min")
+            # if i % 10 == 0 or i == len(param_combinations):
+            #     print(f"  Progress: {i}/{len(param_combinations)} ({i/len(param_combinations)*100:.1f}%)")
+            #print(f"  Progress: {i}/{len(param_combinations)} ({i/len(param_combinations)*100:.1f}%)")
+
             
             metrics = self.evaluate_params(params, validation_method=validation_method)
             
@@ -305,7 +319,7 @@ class RFHyperparameterTuner:
         
         if strategy == 'progressive':
             # Multi-stage tuning
-            coarse_results = self.grid_search(param_grids['coarse'], primary_metric=primary_metric, validation_method='static')
+            coarse_results = self.grid_search(param_grids['coarse'], primary_metric=primary_metric, validation_method=validation_method)
             fine_results = self.grid_search(param_grids['fine'], max_combinations=50 if validation_method == 'walk_forward' else 100, primary_metric=primary_metric, validation_method=validation_method)
             combined_results = pd.concat([coarse_results, fine_results], ignore_index=True)
         elif strategy in param_grids:

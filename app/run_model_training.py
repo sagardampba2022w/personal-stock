@@ -459,7 +459,7 @@ def main():
                        help="Hyperparameter tuning strategy")
     parser.add_argument("--tune-validation", choices=["static", "walk_forward"], default="static",
                        help="Validation method for tuning")
-    parser.add_argument("--tune-metric", choices=["f1", "precision", "recall", "roc_auc"], default="f1",
+    parser.add_argument("--tune-metric", choices=["f1", "precision", "recall", "roc_auc"], default="roc_auc",
                        help="Primary metric for tuning")
     
     args = parser.parse_args()
