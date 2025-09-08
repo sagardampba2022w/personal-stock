@@ -836,10 +836,28 @@ def compare_predictions_on_existing_data() -> pd.DataFrame:
 
     # Step 6: Save results
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    results_file = os.path.join(RESULTS_DIR, f"prediction_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    results_file = os.path.join(
+        RESULTS_DIR,
+        f"prediction_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
     if test_results is not None and not test_results.empty:
         test_results.to_csv(results_file, index=False)
         print(f"\n💾 Detailed results saved to: {results_file}")
+
+    # Save full dataset with predictions (Parquet, fallback to CSV)
+    pred_out_file = os.path.join(
+        RESULTS_DIR,
+        f"predictions_full_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet"
+    )
+    try:
+        comparator.df.to_parquet(pred_out_file, index=False)
+        print(f"💾 Full dataset with predictions saved to: {pred_out_file}")
+    except Exception as e:
+        csv_out_file = pred_out_file.replace(".parquet", ".csv")
+        comparator.df.to_csv(csv_out_file, index=False)
+        print(f"⚠️ Could not write Parquet ({e}). CSV saved to: {csv_out_file}")
+
+
 
     print("\n" + "=" * 80)
     print("PREDICTION COMPARISON COMPLETE")

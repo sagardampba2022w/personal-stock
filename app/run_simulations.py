@@ -1,22 +1,25 @@
 # run_simulations.py
 
 import os
+import argparse
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 
 # Import your existing pipeline utilities
 from train_model_new import TrainModel
 from predictions import (
     load_latest_data,
-    load_model_and_features,
+    load_model_and_features,          # fallback auto-loader
     PredictionComparator,
-    ARTIFACTS_DIR,
-    RESULTS_DIR,
+    ARTIFACTS_DIR as DEFAULT_ARTIFACTS_DIR,
+    RESULTS_DIR as DEFAULT_RESULTS_DIR,
+    _try_read_feature_sidecar as _TRY_SIDECAR,  # helper to read feature list
 )
 
 # ----------------------------
-# Config (feel free to tweak)
+# Config (defaults; can be left as-is)
 # ----------------------------
 SPLIT = "test"
 INVEST_PER_TRADE = 100.0          # $100 per positive signal
@@ -40,8 +43,7 @@ def add_rank_based_auto_rates(df: pd.DataFrame,
                               split_name: str = "validation",
                               target_rates=AUTO_TARGET_RATES) -> list:
     """
-    Create selection columns that choose the top X% by rank on `split_name`
-    (e.g., validation). This avoids brittle absolute thresholds like == 1.0.
+    Create selection columns that choose the top X% by rank on `split_name`.
     Returns the list of newly created column names.
     """
     if proba_col not in df.columns:
@@ -131,7 +133,6 @@ def simulate_strategies(df: pd.DataFrame,
         sub = df[(df[split_col] == split) & (df[strat] == 1)].copy()
         n_trades = len(sub)
         if n_trades == 0:
-            # No trades — record zeros and continue
             results.append({
                 "strategy": strat, "split": split, "n_trades": 0,
                 "gross_pnl": 0.0, "fees": 0.0, "net_pnl": 0.0,
@@ -158,11 +159,10 @@ def simulate_strategies(df: pd.DataFrame,
         avg_pos_per_day = float(per_day.mean()) if len(per_day) else 0.0
         q75_pos_per_day = float(per_day.quantile(0.75)) if len(per_day) else 0.0
 
-        # Capital estimate — $ * HOLD_DAYS * Q75 concurrent positions
+        # Capital estimate
         capital_required = float(invest_per_trade * hold_days_for_capital * q75_pos_per_day)
 
-        # CAGR over ~4 years if we assume split spans ~4y (adjust if needed)
-        # If capital_required is zero (unlikely), set CAGR to 0
+        # CAGR (rough)
         if capital_required > 0:
             years = 4.0
             cagr = float(((capital_required + net_pnl) / capital_required) ** (1.0 / years))
@@ -173,7 +173,7 @@ def simulate_strategies(df: pd.DataFrame,
         daily_pnl = sub.groupby(date_col)["net"].sum()
         max_dd_abs, max_dd_pct = _max_drawdown_from_daily_pnl(daily_pnl, starting_capital=capital_required)
 
-        # Efficiency score (risk & capital adjusted)
+        # Efficiency score
         efficiency = (net_pnl / capital_required / (1.0 + abs(max_dd_pct))) if capital_required > 0 else 0.0
 
         results.append({
@@ -190,7 +190,7 @@ def simulate_strategies(df: pd.DataFrame,
             "cagr": cagr,
             "max_drawdown": max_dd_abs,        # negative
             "max_drawdown_pct": max_dd_pct,    # negative fraction
-            "efficiency_score": efficiency,    # NEW
+            "efficiency_score": efficiency,
         })
 
     cols = [
@@ -206,6 +206,31 @@ def simulate_strategies(df: pd.DataFrame,
 # Main
 # ----------------------------------------
 def main():
+    parser = argparse.ArgumentParser(description="Run strategy simulations using a saved model")
+    parser.add_argument(
+        "--model-file",
+        type=str,
+        default=None,
+        help="Path to a specific model file (.joblib/.pkl). If omitted, auto-picks the latest in artifacts."
+    )
+    parser.add_argument(
+        "--artifacts-dir",
+        type=str,
+        default=str(DEFAULT_ARTIFACTS_DIR),
+        help="Artifacts directory to use when auto-picking the latest model (default: repo-level artifacts/)."
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default=str(DEFAULT_RESULTS_DIR),
+        help="Directory to write the simulation CSV (default: repo-level results/)."
+    )
+    args = parser.parse_args()
+
+    artifacts_dir = Path(args.artifacts_dir).resolve()
+    results_dir = Path(args.results_dir).resolve()
+    results_dir.mkdir(parents=True, exist_ok=True)
+
     print("\n" + "=" * 60)
     print("SIMULATION: LOADING DATA + MODEL AND RECREATING STRATEGIES")
     print("=" * 60)
@@ -218,9 +243,54 @@ def main():
     tm = TrainModel(type("Adapter", (), {"transformed_df": df})())
     tm.prepare_dataframe(start_date="2000-01-01")
 
-    # 3) Load trained model + feature order (no training)
-    sk_model, feature_cols, target_col_from_model = load_model_and_features(ARTIFACTS_DIR)
-    print(f"Target column: {getattr(tm, 'target_col', target_col_from_model)}")
+    # 3) Load trained model + feature order (respect CLI override)
+    if args.model_file:
+        model_path = Path(args.model_file).resolve()
+        if not model_path.exists():
+            raise FileNotFoundError(f"Specified model file not found: {model_path}")
+
+        import joblib
+        model_obj = joblib.load(model_path)
+        print(f"[CLI override] Using model file: {model_path.name}")
+
+        # unwrap if needed
+        if hasattr(model_obj, "model"):
+            sk_model = model_obj.model
+            feature_cols = list(getattr(model_obj, "_inference_feature_columns", []))
+            target_col_from_model = getattr(model_obj, "target_col", None)
+            # if wrapper didn’t carry feature list, try sklearn attr or sidecar
+            if not feature_cols:
+                if hasattr(sk_model, "feature_names_in_"):
+                    feature_cols = list(sk_model.feature_names_in_)
+                else:
+                    sidecar = _TRY_SIDECAR(str(model_path.parent))
+                    if sidecar:
+                        feature_cols = sidecar
+        else:
+            sk_model = model_obj
+            # bare sklearn estimator: resolve features
+            if hasattr(sk_model, "feature_names_in_"):
+                feature_cols = list(sk_model.feature_names_in_)
+            else:
+                sidecar = _TRY_SIDECAR(str(model_path.parent))
+                if not sidecar:
+                    raise RuntimeError(
+                        "Could not resolve feature list for this model. "
+                        "Provide a sidecar JSON in the same folder with key "
+                        "'inference_feature_columns' (or 'feature_cols'/'features')."
+                    )
+                feature_cols = sidecar
+            target_col_from_model = None
+
+        print(f"✓ Resolved features: {len(feature_cols)}")
+    else:
+        # fallback: auto-detect latest model in artifacts_dir
+        sk_model, feature_cols, target_col_from_model = load_model_and_features(artifacts_dir)
+
+    # Set target column if the model provides one
+    if target_col_from_model:
+        tm.target_col = target_col_from_model
+    print(f"Target column: {tm.target_col}")
 
     # --- PATCH: align ticker dummies to the training schema (silent zero-fill) ---
     expected = list(feature_cols)
@@ -253,7 +323,7 @@ def main():
     # Add ML probs + fixed thresholds
     comparator.add_ml_predictions(sk_model, feature_cols, thresholds=(0.21, 0.50, 0.65, 0.80, 0.90))
 
-    # --- DIAGNOSTIC: print ONLY if there are issues ---
+    # Diagnostics (only if issues)
     all_cols = set(comparator.df.columns)
     missing_feats = [c for c in feature_cols if c not in all_cols]
     extra_feats = [c for c in comparator.df.columns if c not in feature_cols and c.isidentifier()]
@@ -326,10 +396,7 @@ def main():
     print("\nTOP 10 (by efficiency_score):")
     print(top_eff.to_string(index=False))
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    out_path = os.path.join(
-        RESULTS_DIR, f"simulations_{SPLIT}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    )
+    out_path = results_dir / f"simulations_{SPLIT}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     sim_df.to_csv(out_path, index=False)
     print(f"\n💾 Saved full simulation results to: {out_path}")
 

@@ -12,7 +12,8 @@ class TrainConfig:
     rf_max_depth: Optional[int] = None 
     rf_n_estimators: int = 100
     random_state: int = 42
-    n_jobs: int = -1
+    n_jobs: int = 4
+
 
     def __post_init__(self):
         if self.target_preference is None:

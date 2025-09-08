@@ -241,8 +241,8 @@ class ModelTrainingRunner:
         
         return self.results
     
-    def run_hyperparameter_tuning(self, strategy='progressive', validation_method='walk_forward', 
-                                 primary_metric='f1'):
+    def run_hyperparameter_tuning(self, strategy='coarse', validation_method='static', 
+                                 primary_metric='roc_auc'):
         """Run hyperparameter tuning"""
         print("\n" + "=" * 60)
         print("HYPERPARAMETER TUNING")
@@ -251,13 +251,21 @@ class ModelTrainingRunner:
         if self.train_model is None:
             self.prepare_model()
         
-        print(f"Tuning configuration:")
-        print(f"  Strategy: {strategy}")
-        print(f"  Validation: {validation_method}")
-        print(f"  Primary metric: {primary_metric}")
+        # print(f"Tuning configuration:")
+        # print(f"  Strategy: {strategy}")
+        # print(f"  Validation: {validation_method}")
+        # print(f"  Primary metric: {primary_metric}")
         
+        print(f"Tuning configuration:\n  Strategy: {strategy}\n  Validation: {validation_method}\n  Metric: {primary_metric}")
+
         # Initialize tuner
-        tuner = RFHyperparameterTuner(self.train_model)
+        #tuner = RFHyperparameterTuner(self.train_model)
+
+        tuner = RFHyperparameterTuner(
+        self.train_model,
+        results_dir=str(PROJECT_ROOT / "tuning_results")
+        )
+
         
         # Run tuning
         tuning_results = tuner.run_full_tuning(
@@ -455,7 +463,7 @@ def main():
                        help="Class weight for basic training")
     
     # Tuning parameters
-    parser.add_argument("--tune-strategy", choices=["coarse", "fine", "progressive", "random"], default="progressive",
+    parser.add_argument("--tune-strategy", choices=["coarse", "fine", "progressive", "random"], default="coarse",
                        help="Hyperparameter tuning strategy")
     parser.add_argument("--tune-validation", choices=["static", "walk_forward"], default="static",
                        help="Validation method for tuning")

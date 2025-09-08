@@ -50,7 +50,7 @@ class RFHyperparameterTuner:
             self.results_dir = PROJECT_ROOT / "tuning_results"
         else:
             self.results_dir = Path(results_dir)
-        self.results_dir.mkdir(exist_ok=True)
+        self.results_dir.mkdir(parents=True,exist_ok=True)
         
         if not hasattr(self.tm, 'X_train') or self.tm.X_train is None:
             raise ValueError("TrainModel must have prepared data splits. Call prepare_dataframe() first.")
@@ -67,14 +67,27 @@ class RFHyperparameterTuner:
         """Optimized parameter grids for RandomForest tuning"""
         return {
             # ⚡ Coarse grid: quick probe (fast, < 10 min)
+            # 'coarse': {
+            #     'n_estimators': [100, 200],
+            #     'max_depth': [12, 18],             # focus mid-depth
+            #     'min_samples_split': [2, 5],
+            #     'min_samples_leaf': [1, 2],
+            #     'max_features': ['sqrt', 0.3],
+            #     'class_weight': [None, 'balanced'],
+            # },
+
             'coarse': {
-                'n_estimators': [100, 200],
-                'max_depth': [12, 18],             # focus mid-depth
-                'min_samples_split': [2, 5],
-                'min_samples_leaf': [1, 2],
-                'max_features': ['sqrt', 0.3],
-                'class_weight': [None, 'balanced'],
+                'n_estimators': [50, 100, 200, 300],        # small → bigger forest sizes
+                'max_depth': [5, 7, 9, 11, 13, 15, 17, 19], # shallow → deep
+                'min_samples_split': [2],                   # default
+                'min_samples_leaf': [1],                    # default
+                'max_features': ['sqrt'],                   # default for classification
+                'class_weight': [None],
+                'bootstrap': [True],            # ensure bootstrapping is ON
+                'max_samples': [0.7], # 50%, 70%, or 100% of rows per tree
+                                          # default
             },
+
 
             # ✅ Fine grid: balanced detail (~30–60 min, ~216 combos)
             'fine': {
@@ -113,7 +126,7 @@ class RFHyperparameterTuner:
     def _evaluate_static(self, params: Dict[str, Any], eval_set: str = 'validation') -> Dict[str, float]:
         """Static validation - traditional train/validation split"""
         try:
-            rf = RandomForestClassifier(random_state=42, n_jobs=-1, **params)
+            rf = RandomForestClassifier(random_state=42, n_jobs=4, **params)
             rf.fit(self.tm.X_train, self.tm.y_train)
             
             if eval_set == 'validation':
@@ -202,7 +215,7 @@ class RFHyperparameterTuner:
                 X_train_fold = X_train_fold[common_cols]
                 X_test_fold = X_test_fold[common_cols]
                 
-                rf_fold = RandomForestClassifier(random_state=42, n_jobs=-1, **params)
+                rf_fold = RandomForestClassifier(random_state=42, n_jobs=4, **params)
                 rf_fold.fit(X_train_fold, y_train_fold)
                 
                 y_pred_proba_fold = rf_fold.predict_proba(X_test_fold)[:, 1]
@@ -315,8 +328,8 @@ class RFHyperparameterTuner:
         print(f"Grid search complete. Best {primary_metric}: {self.best_score:.4f}")
         return results_df
     
-    def run_full_tuning(self, strategy: str = 'progressive', 
-                       primary_metric: str = 'f1',
+    def run_full_tuning(self, strategy: str = 'coarse', 
+                       primary_metric: str = 'roc_auc',
                        validation_method: str = 'static') -> Dict[str, Any]:
         """Run complete tuning workflow"""
         print(f"🚀 Starting tuning: {strategy} strategy, {validation_method} validation, {primary_metric} metric")
@@ -359,8 +372,45 @@ class RFHyperparameterTuner:
             'primary_metric': primary_metric
         }
     
+    # def save_best_model(self, save_dir: str = None) -> str:
+    #     """Train and save the best model"""
+    #     if not self.best_params:
+    #         raise ValueError("No best parameters found. Run tuning first.")
+        
+    #     # Use project-relative artifacts directory if no custom directory specified
+    #     if save_dir is None:
+    #         save_path = ARTIFACTS_DIR
+    #     else:
+    #         save_path = Path(save_dir)
+    #     save_path.mkdir(exist_ok=True)
+        
+    #     best_rf = RandomForestClassifier(random_state=42, n_jobs=4, **self.best_params)
+    #     best_rf.fit(self.tm.X_train_valid, self.tm.y_train_valid)
+        
+    #     model_file = save_path / "best_rf_model.joblib"
+    #     meta_file = save_path / "model_metadata.json"
+        
+    #     import joblib
+    #     joblib.dump(best_rf, model_file)
+        
+    #     metadata = {
+    #         'best_params': self.best_params,
+    #         'best_validation_score': float(self.best_score),
+    #         'feature_columns': list(self.tm.X_train_valid.columns),
+    #         'target_column': self.tm.target_col,
+    #         'training_samples': int(len(self.tm.X_train_valid)),
+    #         'tuning_timestamp': datetime.now().isoformat(),
+    #         'feature_importances': best_rf.feature_importances_.tolist()
+    #     }
+        
+    #     with open(meta_file, 'w') as f:
+    #         json.dump(metadata, f, indent=2)
+        
+    #     print(f"Best model saved to: {model_file}")
+    #     return str(save_path)
+    
     def save_best_model(self, save_dir: str = None) -> str:
-        """Train and save the best model"""
+        """Train and save the best model (latest + timestamped archive)"""
         if not self.best_params:
             raise ValueError("No best parameters found. Run tuning first.")
         
@@ -371,14 +421,21 @@ class RFHyperparameterTuner:
             save_path = Path(save_dir)
         save_path.mkdir(exist_ok=True)
         
-        best_rf = RandomForestClassifier(random_state=42, n_jobs=-1, **self.best_params)
+        best_rf = RandomForestClassifier(random_state=42, n_jobs=4, **self.best_params)
         best_rf.fit(self.tm.X_train_valid, self.tm.y_train_valid)
         
-        model_file = save_path / "best_rf_model.joblib"
-        meta_file = save_path / "model_metadata.json"
+        # Always keep a "latest" file (overwrite each run)
+        latest_model_file = save_path / "best_rf_model.joblib"
+        latest_meta_file  = save_path / "model_metadata.json"
+        
+        # Also save an archived, timestamped version
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archived_model_file = save_path / f"best_rf_model_{timestamp}.joblib"
+        archived_meta_file  = save_path / f"model_metadata_{timestamp}.json"
         
         import joblib
-        joblib.dump(best_rf, model_file)
+        joblib.dump(best_rf, latest_model_file)
+        joblib.dump(best_rf, archived_model_file)
         
         metadata = {
             'best_params': self.best_params,
@@ -390,11 +447,15 @@ class RFHyperparameterTuner:
             'feature_importances': best_rf.feature_importances_.tolist()
         }
         
-        with open(meta_file, 'w') as f:
+        with open(latest_meta_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        with open(archived_meta_file, 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        print(f"Best model saved to: {model_file}")
+        print(f"Best model saved to (latest): {latest_model_file}")
+        print(f"Best model also archived as: {archived_model_file}")
         return str(save_path)
+
 
 
 # Simple usage example
