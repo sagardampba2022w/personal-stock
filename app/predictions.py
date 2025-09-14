@@ -35,7 +35,7 @@ ARTIFACTS_DIR = (HERE / ".." / "artifacts").resolve()
 RESULTS_DIR = (HERE / ".." / "results").resolve()
 
 
-from train_model_new import TrainModel  # only used to prepare dataframe/splits
+from .train_model_new import TrainModel  # only used to prepare dataframe/splits
 
 
 # --- Tiny adapter so TrainModel can init from a df we already have ---
