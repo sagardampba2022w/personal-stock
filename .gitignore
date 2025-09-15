@@ -201,10 +201,14 @@ gdrive-creds.json
 *.parquet
 *.parquet.brotli
 *.csv
-
+*.joblib
+*.json
 
 # But still exclude these specific paths
-/app/artifacts/
 /archive-app/
 portfolio-manage/gdrive-creds.json
-/artifacts/
+
+
+!artifacts/best_rf_model.joblib
+!artifacts/model_metadata.json
+
