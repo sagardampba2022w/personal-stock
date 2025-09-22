@@ -295,6 +295,10 @@ TELEGRAM_CHAT_ID=your_chat_id
 
 ```
 personal-stock/
+├── .github/                      # GitHub Actions & Automation
+│   └── workflows/                # Automated workflow definitions
+│       ├── portfolio-summary.yml     # Daily portfolio alerts & analysis
+│       └── portfolio-summary copy.txt # Backup/alternative workflow
 ├── app/                          # Core ML pipeline
 │   ├── run_data_extraction.py    # Data pipeline orchestration
 │   ├── run_model_training.py     # ML training orchestration
