@@ -647,9 +647,86 @@ python app/run_simulations.py
 
 ## 🔄 10. Automation & Scheduling
 
-### Daily Automation (Linux/Mac)
+### GitHub Actions Automation (Recommended)
 
-**Crontab Setup:**
+**Production Portfolio Monitoring:**
+
+The system includes automated GitHub Actions workflows for hands-off portfolio monitoring:
+
+**Main Workflow (`.github/workflows/portfolio-summary.yml`):**
+```yaml
+name: Portfolio Summary
+on:
+  schedule:
+    - cron: '0 7 * * *'     # 11:00 UTC = 15:00 Dubai time  
+  workflow_dispatch:        # Manual trigger available
+
+jobs:
+  run-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run all portfolio scripts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GDRIVE_CREDS_JSON: ${{ secrets.GDRIVE_CREDS_JSON }}
+        run: |
+          python portfolio-manage/portfolio-positions-manage.py
+          python portfolio-manage/send-summary.py
+          python portfolio-manage/portfolio-alerts.py
+```
+
+**Setup GitHub Actions Automation:**
+
+1. **Configure Repository Secrets:**
+   ```bash
+   # Go to: Repository Settings → Secrets and variables → Actions
+   # Add these secrets:
+   ```
+   
+   | Secret Name | Value | Description |
+   |-------------|-------|-------------|
+   | `TELEGRAM_BOT_TOKEN` | `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw` | Your Telegram bot token |
+   | `TELEGRAM_CHAT_ID` | `123456789` | Your Telegram chat ID |
+   | `GDRIVE_CREDS_JSON` | `{"type": "service_account"...}` | Complete service account JSON |
+
+2. **Enable GitHub Actions:**
+   ```bash
+   # Repository Settings → Actions → General
+   # Set to "Allow all actions and reusable workflows"
+   ```
+
+3. **Test Manual Execution:**
+   ```bash
+   # Go to: Actions tab → Portfolio Summary → Run workflow
+   # Click "Run workflow" to test manually
+   ```
+
+4. **Monitor Execution:**
+   ```bash
+   # Check logs in Actions tab for any errors
+   # Verify Telegram messages are received
+   ```
+
+**Benefits of GitHub Actions:**
+- ✅ **Fully Automated**: Runs without local machine
+- ✅ **Reliable**: GitHub's infrastructure reliability
+- ✅ **Free**: 2,000 minutes/month for public repos
+- ✅ **Scalable**: Easy to add more workflows
+- ✅ **Secure**: Encrypted secrets management
+
+### Local Automation (Alternative)
+
+**Daily Automation (Linux/Mac):**
+
 ```bash
 # Edit crontab
 crontab -e
@@ -661,13 +738,14 @@ crontab -e
 # 9:00 AM - Generate predictions for today
 0 9 * * 1-5 cd /path/to/personal-stock && python app/run_predictions.py --mode generate
 
+# 3:00 PM - Afternoon portfolio analysis (Dubai time)
+0 15 * * 1-5 cd /path/to/personal-stock && python portfolio-manage/portfolio-positions-manage.py
+
 # 6:00 PM - Evening portfolio summary
 0 18 * * 1-5 cd /path/to/personal-stock && python portfolio-manage/portfolio-alerts.py
 ```
 
-### Windows Task Scheduler
-
-**Create Batch Files:**
+**Windows Task Scheduler:**
 
 `daily_morning.bat`:
 ```batch
@@ -677,40 +755,109 @@ python portfolio-manage\log-journal.py
 python app\run_predictions.py --mode generate
 ```
 
+`daily_afternoon.bat`:
+```batch
+@echo off
+cd C:\path\to\personal-stock
+python portfolio-manage\portfolio-positions-manage.py
+python portfolio-manage\send-summary.py
+```
+
 `daily_evening.bat`:
 ```batch
 @echo off
 cd C:\path\to\personal-stock
 python portfolio-manage\portfolio-alerts.py
-python portfolio-manage\send-summary.py
 ```
 
-### Cloud Deployment (GitHub Actions)
+### Advanced GitHub Actions Workflows
 
-**Example workflow (`.github/workflows/daily-trading.yml`):**
+**Multiple Workflow Strategy:**
+
+1. **Daily Portfolio Monitoring** (Current Implementation):
+   ```yaml
+   # .github/workflows/portfolio-summary.yml
+   # Runs: portfolio analysis + alerts
+   # Schedule: Daily at 15:00 Dubai time
+   ```
+
+2. **Weekly Model Updates** (Optional Addition):
+   ```yaml
+   # .github/workflows/weekly-model-update.yml
+   name: Weekly Model Update
+   on:
+     schedule:
+       - cron: '0 2 * * 1'  # Monday 2:00 AM UTC
+   jobs:
+     update-model:
+       runs-on: ubuntu-latest
+       steps:
+         - name: Checkout code
+           uses: actions/checkout@v4
+         - name: Set up Python
+           uses: actions/setup-python@v5
+           with:
+             python-version: '3.12'
+         - name: Install dependencies
+           run: pip install -r requirements.txt
+         - name: Update data and retrain model
+           run: |
+             python app/run_data_extraction.py --mode small --num-tickers 50
+             python app/run_model_training.py --mode basic
+   ```
+
+3. **Monthly Full Refresh** (Optional Addition):
+   ```yaml
+   # .github/workflows/monthly-refresh.yml
+   name: Monthly Full Refresh
+   on:
+     schedule:
+       - cron: '0 4 1 * *'  # 1st of month, 4:00 AM UTC
+   jobs:
+     full-refresh:
+       runs-on: ubuntu-latest
+       steps:
+         - name: Full pipeline refresh
+           run: |
+             python app/run_data_extraction.py --mode batch --max-tickers 200
+             python app/run_model_training.py --mode tune --tune-strategy progressive
+             python app/run_predictions.py --mode recommend
+   ```
+
+### Monitoring & Troubleshooting Automation
+
+**GitHub Actions Monitoring:**
+
+```bash
+# Check workflow status
+curl -H "Authorization: token $GITHUB_TOKEN" \
+     https://api.github.com/repos/username/personal-stock/actions/runs
+
+# View workflow logs
+# Go to: Actions tab → Select workflow run → View logs
+```
+
+**Common Issues & Solutions:**
+
+| Issue | Solution |
+|-------|----------|
+| **Secret not found** | Verify secret name matches exactly in workflow |
+| **Import errors** | Check requirements.txt includes all dependencies |
+| **Timeout errors** | Add timeout settings to workflow steps |
+| **API rate limits** | Add delays between API calls in scripts |
+
+**Notification Setup:**
+
 ```yaml
-name: Daily Trading Pipeline
-on:
-  schedule:
-    - cron: '30 13 * * 1-5'  # 6:30 AM PST (1:30 PM UTC)
-
-jobs:
-  trading-analysis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.9
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run predictions
-        env:
-          GDRIVE_CREDS_JSON: ${{ secrets.GDRIVE_CREDS_JSON }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python app/run_predictions.py --mode generate
+# Add to workflow for failure notifications
+- name: Notify on failure
+  if: failure()
+  uses: 8398a7/action-slack@v3
+  with:
+    status: failure
+    channel: '#trading-alerts'
+  env:
+    SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
 ```
 
 ## 📋 11. Maintenance & Updates
